@@ -8,22 +8,22 @@ license.workspace = true
 # Provides the owned pixels passed across the frame boundary.
 lunette-compositor = { path = "../lunette-compositor" }
 parking_lot.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
-calloop.workspace = true
 lunette-luau.workspace = true
-# `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
-libc.workspace = true
-pipewire.workspace = true
 rtrb.workspace = true
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+calloop.workspace = true
+# `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
+libc.workspace = true
+pipewire.workspace = true
 # A frame has at most four planes, so the usual case fits in the inline buffer.
 smallvec.workspace = true
 # Restore tokens contain arbitrary EDID text, which a hand-rolled format would
 # have to escape.
 toml.workspace = true
-tracing.workspace = true
 wayland-client.workspace = true
 # `unstable` exposes `zxdg_output_manager_v1` for logical output geometry, and
 # `staging` exposes `ext_data_control_v1` for the host clipboard.
@@ -41,6 +41,7 @@ wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+windows-core = "=0.62.2"
 windows = { version = "=0.62.2", features = [
     "Graphics_Capture",
     "Graphics_DirectX_Direct3D11",
@@ -50,7 +51,15 @@ windows = { version = "=0.62.2", features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
     "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",

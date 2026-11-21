@@ -1,9 +1,10 @@
-//! Linux-only: non-routing system-output and logical-process PCM capture.
+//! System-output and logical-process PCM capture types and backends.
 
+#[cfg(target_os = "linux")]
 mod driver;
 #[cfg(any(test, feature = "test-fakes"))]
 mod fake;
-#[cfg(any(test, feature = "test-fakes"))]
+#[cfg(all(target_os = "linux", any(test, feature = "test-fakes")))]
 mod fake_graph;
 mod graph;
 mod service;
@@ -11,12 +12,16 @@ mod service;
 mod tests_support;
 mod transport;
 mod types;
+#[cfg(windows)]
+mod windows;
+#[cfg(target_os = "linux")]
 mod worker;
 
+#[cfg(target_os = "linux")]
 pub use driver::{GraphFailure, GraphObjectId, GraphObjectState, GraphOps};
 #[cfg(any(test, feature = "test-fakes"))]
 pub use fake::{RecordedAudioCommand, RecordingAudioBackend, RecordingAudioControl};
-#[cfg(any(test, feature = "test-fakes"))]
+#[cfg(all(target_os = "linux", any(test, feature = "test-fakes")))]
 pub use fake_graph::{RecordedGraphOperation, RecordingGraphOps};
 pub use graph::{
     AdditiveLink, AssertionStatus, ClientIdentity, ClientKind, ClientObservation, DefaultSink,
@@ -34,4 +39,7 @@ pub use transport::{
 pub use types::{
     AttributionProvenance, AudioFormat, CaptureState, Source, SourceLimits, UnavailableReason,
 };
+#[cfg(windows)]
+pub use windows::{WasapiAudioBackend, WindowsAudioTargets};
+#[cfg(target_os = "linux")]
 pub use worker::{PipeWireAudioBackend, PipeWireAudioConfig};

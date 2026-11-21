@@ -101,6 +101,9 @@ export type Sink = {
   -- so a list of sinks can report what each one reaches; the handle a sink came
   -- from does not reveal the domain.
   read domain: 'window' | 'host',
+  -- Whether this sink accepts Unicode text without translating it to seat
+  -- keycodes.
+  read directText: boolean,
   -- The compositor's identifier for a window sink, and nothing for a host one:
   -- a mirrored monitor is not a `wl_surface` and has nothing the compositor
   -- could address.
@@ -187,6 +190,15 @@ export type Window = {
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
 }
 
+-- A native window that the host can capture.
+export type CaptureWindow = {
+  -- Session-local identity, valid while this window is available.
+  id: number,
+  title: string,
+  -- A capture is running or has been requested.
+  captured: boolean,
+}
+
 -- A popup or subsurface of a window, as of this frame. Its texture rotates with
 -- the client's buffers, so it is not kept across frames.
 export type ChildSurface = {
@@ -242,8 +254,12 @@ export type Monitor = {
   read dead: boolean,
   -- Whether a capture stream is running for this monitor.
   read mirrored: boolean,
-  -- Whether the active stream uses wlr-screencopy, with no portal selection.
+  -- Whether the platform captures this monitor directly without a screencast
+  -- portal.
   read directCapture: boolean,
+  -- Whether the desktop should wait for the user to choose this monitor before
+  -- mirroring it.
+  read explicitShare: boolean,
   -- Whether a mirror has been asked for and has not arrived, such as while a
   -- portal dialog is open.
   read pending: boolean,
@@ -594,7 +610,7 @@ export type MonitorAddedEvent = {
   monitor: Monitor,
 }
 
--- A spawned process ends, or never starts.
+-- A tracked process ends, or a launch fails.
 export type ProcessExitedEvent = {
   -- The process that ends.
   process: Process,
@@ -808,6 +824,15 @@ export type PluginApi = {
 export type Lunette = {
   -- Every mapped toplevel, as of this frame's snapshot.
   read windows: () -> { Window },
+  -- Native windows available for capture, or nil when the host lacks a window
+  -- picker.
+  read captureWindows: () -> { CaptureWindow }?,
+  -- Queues capture of one available window. A successful capture opens a normal
+  -- Window handle.
+  read captureWindow: (id: number) -> boolean,
+  -- Stops sharing the selected native window. The Windows application stays
+  -- open.
+  read stopCaptureWindow: (id: number) -> boolean,
   -- Every registered process, including adopted clients, as of this frame's
   -- snapshot.
   read processes: () -> { Process },

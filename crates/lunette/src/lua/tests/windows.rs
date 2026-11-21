@@ -9,8 +9,8 @@ use lunette_compositor::protocol::{
 use pretty_assertions::assert_eq;
 
 use crate::{
-    import::formats::Alpha,
     lua::tests::{FakeTexture, error, lua, run, session, snapshot, surface_id, window, window_id},
+    texture::Alpha,
     texture::{TextureDescription, TextureRef},
 };
 

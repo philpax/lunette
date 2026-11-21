@@ -14,6 +14,7 @@ ASSETS = (
     'bindings_knuckles.json',
     'bindings_oculus_touch.json',
     'bindings_frame_controller.json',
+    'bindings_vd_hand_controller.json',
 )
 
 

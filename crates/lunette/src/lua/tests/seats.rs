@@ -12,14 +12,19 @@
 
 use std::sync::Arc;
 
-use lunette_compositor::{
-    keymap::Keymap,
-    protocol::{Command, KeymapConfig, KeymapDefaults, ModifierState, SeatSnapshot},
-};
+use lunette_compositor::protocol::{Command, ModifierState, SeatSnapshot};
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::lua::tests::monitors::HostEvent;
+
+#[cfg(target_os = "linux")]
+use {
+    crate::lua::tests::monitors::HostEvent,
+    lunette_compositor::{
+        keymap::Keymap,
+        protocol::{KeymapConfig, KeymapDefaults},
+    },
+};
 
 /// `KEY_A`, in the evdev numbering the Lua surface takes.
 const KEY_A: u32 = 30;
@@ -28,10 +33,11 @@ const KEY_A: u32 = 30;
 ///
 /// The name is explicit, so the assertions below hold whatever the
 /// compositor's inherited default is.
-pub(super) fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
+pub(super) fn seat(raw: u64, name: &str, _layout: &str) -> SeatSnapshot {
+    #[cfg(target_os = "linux")]
     let keymap = Keymap::compile(
         &KeymapConfig {
-            layout: Some(layout.to_owned()),
+            layout: Some(_layout.to_owned()),
             ..KeymapConfig::default()
         },
         &KeymapDefaults::default(),
@@ -41,6 +47,7 @@ pub(super) fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
     SeatSnapshot {
         seat: SeatId::new(raw).expect("non-zero"),
         name: name.to_owned(),
+        #[cfg(target_os = "linux")]
         keymap: Arc::clone(keymap.text()),
         modifiers: ModifierState::new(),
         // The default seat is the bridged one, which is the seat the compositor
@@ -151,6 +158,7 @@ fn a_seat_reports_its_name() {
     assert_eq!(name, "lunette");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn forward_lookup_answers_what_the_layout_defines() {
     let session = us_session(Vec::new());
@@ -168,6 +176,7 @@ fn forward_lookup_answers_what_the_layout_defines() {
     assert_eq!(shifted, "A", "the modifier argument was not applied");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn forward_lookup_reports_nothing_for_a_key_that_types_nothing() {
     let session = us_session(Vec::new());
@@ -183,6 +192,7 @@ fn forward_lookup_reports_nothing_for_a_key_that_types_nothing() {
     assert!(symbol.is_some(), "a modifier key still has a keysym");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn reverse_lookup_returns_a_keycode_and_modifiers_lua_can_feed_back() {
     let session = us_session(Vec::new());
@@ -226,6 +236,7 @@ fn reverse_lookup_returns_a_keycode_and_modifiers_lua_can_feed_back() {
     assert_eq!(keycode, KEY_A);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn reverse_lookup_of_a_character_the_layout_cannot_express_is_nil() {
     let session = us_session(Vec::new());
@@ -236,6 +247,7 @@ fn reverse_lookup_of_a_character_the_layout_cannot_express_is_nil() {
     assert!(stroke.is_none(), "a snowman is not on a us keyboard");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_lookup_refuses_a_string_or_modifier_it_cannot_read() {
     let session = us_session(Vec::new());
@@ -596,6 +608,7 @@ fn the_default_seat_refuses_to_be_destroyed() {
     assert!(session.flush().is_empty());
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_key_on_a_host_sink_uploads_the_layout_before_the_keystroke() {
     let (session, _, host) = mirrored_session(Vec::new(), FakeMirrors::one());
@@ -660,6 +673,7 @@ fn a_keycode_the_host_provider_never_declared_is_refused_rather_than_sent() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn modifiers_on_a_host_sink_reach_the_provider_as_a_mask() {
     let (session, _, host) = mirrored_session(Vec::new(), FakeMirrors::one());

@@ -15,10 +15,9 @@ use std::{
     rc::Rc,
 };
 
-use lunette_compositor::{
-    protocol::ImportedImage,
-    surface::{PixelBuffer, ShmFormat},
-};
+#[cfg(target_os = "linux")]
+use lunette_compositor::protocol::ImportedImage;
+use lunette_compositor::protocol::PixelFormat as ShmFormat;
 use pretty_assertions::assert_eq;
 
 use super::*;
@@ -232,6 +231,7 @@ fn a_retired_image_is_destroyed_once_its_deferral_has_elapsed() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn an_imported_x_format_is_described_as_opaque() {
     let buffer = ImportedBuffer::Image(ImportedImage {
@@ -250,6 +250,7 @@ fn an_imported_x_format_is_described_as_opaque() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn an_imported_a_format_is_described_as_carrying_alpha() {
     let buffer = ImportedBuffer::Image(ImportedImage {
@@ -446,6 +447,30 @@ fn refreshing_twice_without_damage_copies_once() {
         source.copies().len(),
         2,
         "one for the stabilise, one for the damage"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn refreshing_pixels_in_place_updates_the_commit_and_the_stable_copy() {
+    let (mut ledger, source, stable) = stabilized();
+    let id = surface(1);
+    let size = description(64, 32);
+    let (_, before) = ledger.source(id).expect("the initial upload is installed");
+
+    assert!(!ledger.update_pixels(id, description(32, 64), |_| panic!(
+        "the texture has a different size"
+    )));
+    assert!(!ledger.update_pixels(id, size, |_| false));
+    assert_eq!(ledger.source(id).map(|(_, commit)| commit), Some(before));
+
+    assert!(ledger.update_pixels(id, size, |texture| texture.id == source.id));
+    assert!(ledger.source(id).is_some_and(|(_, commit)| commit > before));
+    ledger.refresh_stable();
+    ledger.refresh_stable();
+    assert_eq!(
+        source.copies(),
+        vec![(source.id, stable), (source.id, stable)]
     );
 }
 

@@ -29,7 +29,7 @@ use ::windows::{
                 D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
                 D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
                 D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
-                ID3D11Texture2D,
+                ID3D11Multithread, ID3D11Texture2D,
             },
             Dxgi::IDXGIDevice,
         },
@@ -42,6 +42,7 @@ use ::windows::{
     core::{Error, Interface, Result, factory},
 };
 use lunette_compositor::protocol::{PixelBuffer, PixelFormat, PixelSize};
+use tracing::debug;
 
 use crate::windows::desktop::{MonitorId, WindowId};
 
@@ -110,6 +111,10 @@ impl Capture {
         };
 
         let (native_device, context) = d3d_device()?;
+        let threading: ID3D11Multithread = context.cast()?;
+        // SAFETY: the immediate context is live. The free-threaded frame pool can use it while
+        // the capture worker reads back a frame, so D3D must serialize those calls.
+        let _ = unsafe { threading.SetMultithreadProtected(true) };
         let dxgi: IDXGIDevice = native_device.cast()?;
         // SAFETY: dxgi is a live device with BGRA support.
         let device: IDirect3DDevice =
@@ -122,14 +127,8 @@ impl Capture {
         }))?;
         let size = item.Size()?;
         frame_dimensions(size)?;
-        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
-            &device,
-            PIXEL_FORMAT,
-            POOL_FRAMES,
-            size,
-        )?;
-        let session = pool.CreateCaptureSession(&item)?;
-        let capture = Self {
+        let (pool, session) = start_capture(&device, &item, size)?;
+        Ok(Self {
             session,
             pool,
             item,
@@ -142,10 +141,7 @@ impl Capture {
             device,
             size,
             _apartment: apartment,
-        };
-        capture.session.SetIsCursorCaptureEnabled(false)?;
-        capture.session.StartCapture()?;
-        Ok(capture)
+        })
     }
 
     /// Reports whether Windows has closed the selected capture target.
@@ -180,12 +176,21 @@ impl Capture {
         let size = frame.ContentSize()?;
         if size != self.size {
             frame.Close()?;
+            drop(frame);
             if size.Width <= 0 || size.Height <= 0 {
                 return Ok(None);
             }
             frame_dimensions(size)?;
-            self.pool
-                .Recreate(&self.device, PIXEL_FORMAT, POOL_FRAMES, size)?;
+            // Start a fresh session to request an initial frame at the new size. Recreating
+            // the pool alone can discard the only frame produced by a static window.
+            debug!(
+                width = size.Width,
+                height = size.Height,
+                "restarting Windows capture at the new size"
+            );
+            self.session.Close()?;
+            self.pool.Close()?;
+            (self.pool, self.session) = start_capture(&self.device, &self.item, size)?;
             self.size = size;
             self.staging = None;
             return Ok(None);
@@ -260,6 +265,19 @@ impl Drop for Capture {
         let _ = self.session.Close();
         let _ = self.pool.Close();
     }
+}
+
+fn start_capture(
+    device: &IDirect3DDevice,
+    item: &GraphicsCaptureItem,
+    size: SizeInt32,
+) -> Result<(Direct3D11CaptureFramePool, GraphicsCaptureSession)> {
+    let pool =
+        Direct3D11CaptureFramePool::CreateFreeThreaded(device, PIXEL_FORMAT, POOL_FRAMES, size)?;
+    let session = pool.CreateCaptureSession(item)?;
+    session.SetIsCursorCaptureEnabled(false)?;
+    session.StartCapture()?;
+    Ok((pool, session))
 }
 
 fn d3d_device() -> Result<(ID3D11Device, ID3D11DeviceContext)> {

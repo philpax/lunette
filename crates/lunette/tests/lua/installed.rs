@@ -106,7 +106,13 @@ fn require_every_module(installation: &Path) -> Result<(), Box<dyn std::error::E
             let name = if module.as_os_str().is_empty() {
                 format!("@{}", alias.name)
             } else {
-                format!("@{}/{}", alias.name, module.display())
+                let module = module
+                    .to_str()
+                    .ok_or_else(|| {
+                        format!("installed module path is not UTF-8: {}", module.display())
+                    })?
+                    .replace(std::path::MAIN_SEPARATOR, "/");
+                format!("@{}/{module}", alias.name)
             };
             require
                 .call::<mlua::Value>(name.as_str())

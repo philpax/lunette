@@ -12,8 +12,8 @@ use crate::{
         answer,
         wire::{Handle, HandleId, HandleKind, Reply, Value},
     },
-    import::formats::Alpha,
     lua::tests::seats::{seat, seated},
+    texture::Alpha,
     texture::TextureDescription,
 };
 

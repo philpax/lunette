@@ -1,6 +1,6 @@
-//! Linux-only: multi-channel signed distance fields through msdfgen's C interface.
+//! Multi-channel signed distance fields through msdfgen's C interface.
 //!
-//! LÖVR builds msdfgen as `libmsdfgen.so` and stages it beside `liblovr.so`, which links it for its
+//! LÖVR builds and stages msdfgen as a shared library, which it links for its
 //! own font atlas. The UI toolkit's glyph atlas generates fields by glyph id, so it calls the same
 //! library directly, through the C functions declared in `vendor/lovr/deps/msdfgen/msdfgen-c.h`.
 

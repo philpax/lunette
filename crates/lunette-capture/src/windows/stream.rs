@@ -28,7 +28,8 @@ pub enum CaptureUpdate {
 #[derive(Debug)]
 pub struct CaptureStream {
     latest: Arc<Mutex<Option<CaptureUpdate>>>,
-    _stop: mpsc::SyncSender<()>,
+    stop: mpsc::SyncSender<()>,
+    worker: thread::JoinHandle<()>,
 }
 
 impl CaptureStream {
@@ -42,7 +43,7 @@ impl CaptureStream {
         let (stop, stopping) = mpsc::sync_channel(0);
         let latest = Arc::new(Mutex::new(None));
         let mailbox = Arc::clone(&latest);
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name("windows-capture".into())
             .spawn(move || {
                 if let Err(error) = capture_frames(&target, &stopping, &mailbox) {
@@ -51,13 +52,24 @@ impl CaptureStream {
             })?;
         Ok(Self {
             latest,
-            _stop: stop,
+            stop,
+            worker,
         })
     }
 
     /// Takes the pending update without waiting for the capture worker.
     pub fn latest(&self) -> Option<CaptureUpdate> {
         self.latest.try_lock()?.take()
+    }
+
+    /// Stops capture and waits for the worker to release its WinRT and GPU resources.
+    ///
+    /// # Errors
+    ///
+    /// Returns the worker's panic if it did not shut down normally.
+    pub fn stop(self) -> thread::Result<()> {
+        drop(self.stop);
+        self.worker.join()
     }
 }
 
@@ -69,16 +81,12 @@ fn capture_frames(
     let mut capture = Capture::open(target)?;
     loop {
         if capture.is_closed() {
-            *mailbox.lock() = Some(CaptureUpdate::Closed);
-            return Ok(());
+            break;
         }
         match capture.read_latest() {
             Ok(Some(frame)) => *mailbox.lock() = Some(CaptureUpdate::Frame(frame)),
             Ok(None) => {}
-            Err(_) if capture.is_closed() => {
-                *mailbox.lock() = Some(CaptureUpdate::Closed);
-                return Ok(());
-            }
+            Err(_) if capture.is_closed() => break,
             Err(error) => return Err(error),
         }
         if stopping.recv_timeout(Duration::from_millis(16)) != Err(mpsc::RecvTimeoutError::Timeout)
@@ -86,4 +94,7 @@ fn capture_frames(
             return Ok(());
         }
     }
+    drop(capture);
+    *mailbox.lock() = Some(CaptureUpdate::Closed);
+    Ok(())
 }

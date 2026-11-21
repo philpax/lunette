@@ -14,8 +14,8 @@ use mlua::Value;
 
 use crate::{
     control::wire::HandleKind,
-    import::formats::Alpha,
     lua::{LuaTexture, Session, declarations::handle, values::MaybeTexture, window::answer},
+    texture::Alpha,
     texture::TextureRef,
 };
 

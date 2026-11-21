@@ -24,15 +24,7 @@ use ash::vk;
 use lunette_lovr::raw::{TextureFormat, TextureFormat_FORMAT_BGRA8, TextureFormat_FORMAT_RGBA8};
 use smithay::backend::allocator::{Format, Fourcc, Modifier};
 
-/// Whether a format's fourth component carries alpha or padding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Alpha {
-    /// The fourth component is alpha, and a consumer samples it.
-    Present,
-    /// The fourth component is undefined padding, and a consumer forces it to
-    /// one. Sampling it renders the surface with arbitrary transparency.
-    Opaque,
-}
+pub use crate::texture::Alpha;
 
 /// How one client format is spelled in Vulkan and in LÖVR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,22 +1,33 @@
-//! Linux-only: the host's monitors, as the Lua surface and the frame loop reach
+//! The host's monitors, as the Lua surface and the frame loop reach
 //! them.
 //!
 //! The traits keep a type parameter off every handle. Interior mutability is a [`RefCell`],
 //! because the Lua API is available in the main state alone.
 
-use std::{cell::RefCell, fmt, mem};
+use std::fmt;
+
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::WindowsMirrors;
 
 use lunette_capture::{
-    mirror::{
-        MirrorOutcome, MirrorSet, MonitorStreams, Progress, RosterChange, SelectionOutcome,
-        SelectionState,
-    },
-    monitor::{LogicalGeometry, Monitor, MonitorKey, PixelExtent, Roster},
-    portal::ScreenCastPortal,
-    stream::CapturedFrame,
-    tokens::TokenStore,
+    mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
+    monitor::{LogicalGeometry, MonitorKey, PixelExtent},
 };
-use tracing::warn;
+
+#[cfg(target_os = "linux")]
+use {
+    lunette_capture::{
+        mirror::{MirrorSet, MonitorStreams, Progress, RosterChange},
+        monitor::{Monitor, Roster},
+        portal::ScreenCastPortal,
+        stream::CapturedFrame,
+        tokens::TokenStore,
+    },
+    std::{cell::RefCell, mem},
+    tracing::warn,
+};
 
 /// A monitor's state as of its last read.
 ///
@@ -73,6 +84,11 @@ pub trait MirrorRegistry: fmt::Debug {
         false
     }
 
+    /// Requires a fresh selection through the desktop UI before automatic mirroring.
+    fn requires_explicit_share(&self) -> bool {
+        false
+    }
+
     /// Defers dismissal while a replacement configuration acquires its mirrors.
     fn begin_reload(&self) -> bool {
         true
@@ -86,6 +102,7 @@ pub trait MirrorRegistry: fmt::Debug {
 ///
 /// Separate from [`MirrorRegistry`] so a Lua handle cannot reach a capture
 /// frame, and so [`crate::frame::FrameDriver`] need not name the portal type.
+#[cfg(target_os = "linux")]
 pub trait MirrorFrames: fmt::Debug {
     /// Installs the source that opens capture streams.
     ///
@@ -110,6 +127,7 @@ pub trait MirrorFrames: fmt::Debug {
 }
 
 /// The monitors of the machine lunette is running on.
+#[cfg(target_os = "linux")]
 pub struct HostMirrors<P> {
     mirrors: RefCell<MirrorSet<P>>,
     /// Monitors attached since the last [`MirrorRegistry::poll`].
@@ -118,6 +136,7 @@ pub struct HostMirrors<P> {
     appeared: RefCell<Vec<MonitorKey>>,
 }
 
+#[cfg(target_os = "linux")]
 impl<P: ScreenCastPortal> HostMirrors<P> {
     #[must_use]
     pub const fn new(mirrors: MirrorSet<P>) -> Self {
@@ -128,6 +147,7 @@ impl<P: ScreenCastPortal> HostMirrors<P> {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {
     fn set_streams(&self, streams: Box<dyn MonitorStreams>) {
         self.mirrors.borrow_mut().set_streams(streams);
@@ -156,12 +176,14 @@ impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl<P> fmt::Debug for HostMirrors<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostMirrors").finish_non_exhaustive()
     }
 }
 
+#[cfg(target_os = "linux")]
 impl<P: ScreenCastPortal> MirrorRegistry for HostMirrors<P> {
     fn poll(&self) -> Vec<MonitorKey> {
         if let Progress::Failed(error) = self.mirrors.borrow_mut().poll() {
@@ -262,6 +284,7 @@ impl MirrorRegistry for NoMonitors {
 }
 
 /// Projects one roster entry, together with what the lifecycle says about it.
+#[cfg(target_os = "linux")]
 fn describe<P: ScreenCastPortal>(monitor: &Monitor, mirrors: &MirrorSet<P>) -> MonitorState {
     let key = monitor.key().clone();
     let mirrored = mirrors.is_mirroring(&key);

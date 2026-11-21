@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 
 use lunette_capture::{
+    FrameTransform,
     hid::{
         KeyModifiers, PanelPoint, PointerButton as HostButton, VirtualKey, WheelDelta, XkbKeymap,
     },
@@ -13,7 +14,6 @@ use lunette_capture::{
         ConnectorKind, ConnectorName, LogicalGeometry, LogicalPosition, LogicalSize, MonitorKey,
         PixelExtent,
     },
-    stream::FrameTransform,
 };
 use lunette_compositor::protocol::PixelPoint;
 use pretty_assertions::assert_eq;
@@ -22,8 +22,8 @@ use super::*;
 use crate::{
     events::LuaEvent,
     host::HostSinks,
-    import::formats::Alpha,
     mirrors::{MirrorRegistry, MonitorState},
+    texture::Alpha,
     texture::TextureDescription,
 };
 
@@ -484,12 +484,11 @@ fn a_monitors_sink_is_in_the_host_domain_and_a_windows_in_the_window_domain() {
 
 #[test]
 fn two_sinks_in_different_domains_route_independently_in_one_frame() {
-    // WayVR's global `InputFocus` cannot express two pointers aimed at two
-    // kinds of surface at the same time.
-    let (session, _mirrors, host) = mirrored_session(
+    let (session, mirrors, host) = mirrored_session(
         vec![window(1, "htop", "st", PixelSize::new(800, 600))],
         FakeMirrors::one(),
     );
+    mirrors.set_mirrored(true);
     let lua = lua(&session);
 
     lua.load(
@@ -501,7 +500,43 @@ fn two_sinks_in_different_domains_route_independently_in_one_frame() {
     .exec()
     .expect("both sinks accept input in the same frame");
 
-    match session.flush().as_slice() {
+    #[cfg(windows)]
+    let commands = {
+        use crate::lua::monitor_input::{MonitorInput, WindowsCommand};
+        let commands = session.flush_windows();
+        match commands.as_slice() {
+            [
+                WindowsCommand::Native(Command::Pointer { .. }),
+                WindowsCommand::Monitor {
+                    monitor: pointed,
+                    input: MonitorInput::Point(hit),
+                    ..
+                },
+                WindowsCommand::Native(Command::Button { .. }),
+                WindowsCommand::Monitor {
+                    monitor: clicked,
+                    input: MonitorInput::Button(PointerButton::Right, true),
+                    ..
+                },
+            ] => {
+                assert_eq!(pointed, &key(1));
+                assert_eq!(clicked, &key(1));
+                assert_eq!(*hit, PanelPoint::TOP_LEFT);
+            }
+            other => panic!("window and monitor commands lost their order: {other:?}"),
+        }
+        assert!(host.events().is_empty());
+        commands
+            .into_iter()
+            .filter_map(|command| match command {
+                WindowsCommand::Native(command) => Some(command),
+                WindowsCommand::Monitor { .. } => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    #[cfg(not(windows))]
+    let commands = session.flush();
+    match commands.as_slice() {
         [
             Command::Pointer {
                 sink: pointed,
@@ -523,6 +558,7 @@ fn two_sinks_in_different_domains_route_independently_in_one_frame() {
         }
         other => panic!("expected the window's two commands and nothing else, got {other:?}"),
     }
+    #[cfg(not(windows))]
     assert_eq!(
         host.events(),
         vec![
@@ -536,6 +572,38 @@ fn two_sinks_in_different_domains_route_independently_in_one_frame() {
             },
         ],
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_monitor_pointer_event_keeps_the_named_seat_that_sent_it() {
+    use crate::lua::monitor_input::{MonitorInput, WindowsCommand};
+
+    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    mirrors.set_mirrored(true);
+    let lua = lua(&session);
+    let id: u64 = run(
+        &lua,
+        "local seat = lunette.newSeat { name = 'laser.right' }
+         assert(lunette.monitors()[1].sink:pointer(0, 0, seat))
+         return seat.id",
+    );
+
+    let commands = session.flush_windows();
+    let [
+        WindowsCommand::Native(Command::CreateSeat { seat, .. }),
+        WindowsCommand::Monitor {
+            seat: owner,
+            input: MonitorInput::Point(_),
+            ..
+        },
+    ] = commands.as_slice()
+    else {
+        panic!("expected a seat creation followed by its pointer event, got {commands:?}");
+    };
+    assert_eq!(owner, seat);
+    assert_eq!(owner.get(), id);
+    assert_ne!(*owner, DEFAULT_SEAT);
 }
 
 #[test]

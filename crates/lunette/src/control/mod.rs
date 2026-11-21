@@ -1,4 +1,4 @@
-//! Linux-only: the control socket, and the thread that accepts on it.
+//! The local control endpoint and the thread that accepts on it.
 //!
 //! `lunctl` sends the running session a Lua chunk and receives the values
 //! back ([the Lua API](../../../docs/development/native/lua-api.md#lunctl)). The module provides
@@ -38,31 +38,39 @@
 
 pub mod eval;
 pub mod identifier;
+#[cfg(windows)]
+pub mod pipe;
 pub mod serialise;
+#[cfg(target_os = "linux")]
 pub mod socket;
 pub mod wire;
 
+use std::{
+    io::Write,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError},
+    },
+    time::{Duration, Instant},
+};
+
+#[cfg(target_os = "linux")]
 use std::{
     io,
     net::Shutdown,
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError},
-    },
+    sync::Arc,
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
-use tracing::{debug, info, warn};
+#[cfg(target_os = "linux")]
+use tracing::info;
+use tracing::{debug, warn};
 
-pub use crate::control::{
-    eval::answer,
-    socket::{BindError, ControlSocket},
-    wire::Reply,
-};
+pub use crate::control::{eval::answer, wire::Reply};
+#[cfg(target_os = "linux")]
+pub use socket::{BindError, ControlSocket};
 
 /// How many chunks may be waiting for the session at once.
 const QUEUE_DEPTH: usize = 4;
@@ -140,6 +148,7 @@ impl ControlSwitch {
 ///
 /// As [`ControlSocket::bind`]. A session without a control socket is still a
 /// session, so the caller reports and continues.
+#[cfg(target_os = "linux")]
 pub fn start(
     switch: ControlSwitch,
     runtime_directory: &Path,
@@ -158,6 +167,7 @@ pub fn start(
 /// Split from [`start`]; a test can bind its own socket in a temporary
 /// directory and run the thread against it.
 #[must_use]
+#[cfg(target_os = "linux")]
 pub fn serve(socket: ControlSocket) -> (ControlThread, ChunkQueue) {
     let (sender, receiver) = mpsc::sync_channel(QUEUE_DEPTH);
     let stopping = Arc::new(AtomicBool::new(false));
@@ -190,12 +200,14 @@ pub fn serve(socket: ControlSocket) -> (ControlThread, ChunkQueue) {
 
 /// The accepting thread, for the session's lifetime.
 #[derive(Debug)]
+#[cfg(target_os = "linux")]
 pub struct ControlThread {
     thread: Option<JoinHandle<()>>,
     stopping: Arc<AtomicBool>,
     path: PathBuf,
 }
 
+#[cfg(target_os = "linux")]
 impl ControlThread {
     /// Stops the thread and waits for it.
     ///
@@ -218,6 +230,7 @@ impl ControlThread {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for ControlThread {
     fn drop(&mut self) {
         self.stop();
@@ -277,6 +290,7 @@ impl Request {
 }
 
 /// Accepts connections until the session stops the thread.
+#[cfg(target_os = "linux")]
 fn accept_loop(socket: &ControlSocket, sender: &SyncSender<Request>, stopping: &AtomicBool) {
     for stream in socket.listener().incoming() {
         if stopping.load(Ordering::Acquire) {
@@ -301,6 +315,7 @@ fn accept_loop(socket: &ControlSocket, sender: &SyncSender<Request>, stopping: &
 }
 
 /// Whether an accept failure is worth continuing after.
+#[cfg(target_os = "linux")]
 fn transient(error: &io::Error) -> bool {
     matches!(
         error.kind(),
@@ -313,6 +328,7 @@ fn transient(error: &io::Error) -> bool {
 /// One connection at a time, and one chunk per connection. A `lunctl`
 /// invocation is a shell command, not a session. The serial accept loop means
 /// at most `QUEUE_DEPTH` chunks are in flight at once.
+#[cfg(target_os = "linux")]
 fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
     if let Err(error) = stream.set_read_timeout(Some(READ_TIMEOUT)) {
         debug!(%error, "a lunctl connection could not be given a read timeout");
@@ -324,7 +340,7 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
         // session it could not reach. The session is present.
         Err(error) => Reply::Malformed(error.to_string()),
         Ok(request) => match request.version_mismatch(wire::PROTOCOL_VERSION) {
-            None => submit(sender, request.chunk),
+            None => submit(sender, request.chunk, None),
             Some(reply) => reply,
         },
     };
@@ -344,7 +360,7 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
 /// the stream is untouched and the substitute is the first thing on it.
 /// Every other failure is in the connection itself, where a second write would
 /// fail again.
-fn write_answer(stream: &mut UnixStream, reply: &Reply) {
+fn write_answer(stream: &mut impl Write, reply: &Reply) {
     let Err(error) = wire::write_reply(stream, reply) else {
         return;
     };
@@ -364,7 +380,7 @@ fn write_answer(stream: &mut UnixStream, reply: &Reply) {
 }
 
 /// Queues one chunk and waits for the session's answer.
-fn submit(sender: &SyncSender<Request>, chunk: String) -> Reply {
+fn submit(sender: &SyncSender<Request>, chunk: String, stopping: Option<&AtomicBool>) -> Reply {
     let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
     let request = Request {
         chunk,
@@ -380,20 +396,33 @@ fn submit(sender: &SyncSender<Request>, chunk: String) -> Reply {
         Err(TrySendError::Disconnected(_)) => return Reply::Unanswered,
     }
 
-    match reply_receiver.recv_timeout(REPLY_TIMEOUT) {
-        Ok(reply) => reply,
-        Err(RecvTimeoutError::Timeout) => {
-            warn!(
-                "lunctl: the session did not answer a chunk within {REPLY_TIMEOUT:?}; it may have \
-                 stopped drawing"
-            );
-            Reply::Unanswered
+    let end = Instant::now() + REPLY_TIMEOUT;
+    loop {
+        if stopping.is_some_and(|stopping| stopping.load(Ordering::Acquire)) {
+            return Reply::Unanswered;
         }
-        Err(RecvTimeoutError::Disconnected) => Reply::Unanswered,
+        let remaining = end.saturating_duration_since(Instant::now());
+        let interval = if stopping.is_some() {
+            remaining.min(Duration::from_millis(50))
+        } else {
+            remaining
+        };
+        match reply_receiver.recv_timeout(interval) {
+            Ok(reply) => return reply,
+            Err(RecvTimeoutError::Disconnected) => return Reply::Unanswered,
+            Err(RecvTimeoutError::Timeout) if Instant::now() < end => {}
+            Err(RecvTimeoutError::Timeout) => {
+                warn!(
+                    "lunctl: the session did not answer a chunk within {REPLY_TIMEOUT:?}; it may have \
+                     stopped drawing"
+                );
+                return Reply::Unanswered;
+            }
+        }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[expect(
     clippy::expect_used,
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"

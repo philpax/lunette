@@ -14,22 +14,18 @@
 //! Capture workers own the platform's capture resources and hand off owned frame data.
 //! LÖVR and Vulkan resources belong to the host's frame thread.
 
-#[cfg(target_os = "linux")]
 #[macro_use]
 mod variants;
 
-#[cfg(target_os = "linux")]
 pub mod audio;
 #[cfg(target_os = "linux")]
 pub mod clipboard;
-#[cfg(target_os = "linux")]
 pub mod hid;
-#[cfg(target_os = "linux")]
 pub mod mirror;
-#[cfg(target_os = "linux")]
 pub mod monitor;
-#[cfg(target_os = "linux")]
 pub mod portal;
+mod transform;
+pub use transform::FrameTransform;
 #[cfg(target_os = "linux")]
 pub mod stream;
 #[cfg(target_os = "linux")]

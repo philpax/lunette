@@ -125,7 +125,7 @@ impl LuaLayer for LovrLayer {
         // reference the pool holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
-                _luax_pushtype(state.cast(), ObjectType_T_Layer as i32, pointer);
+                _luax_pushtype(state.cast(), ObjectType_T_Layer as _, pointer);
             })
         }
     }

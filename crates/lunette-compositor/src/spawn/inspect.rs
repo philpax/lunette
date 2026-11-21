@@ -4,26 +4,12 @@
 
 use std::{fs, io};
 
+pub use crate::protocol::ProcessInspector;
+
 use crate::{
     protocol::{Pid, ProcessInstance, ProcessObservation, ProcessObservationFailure},
     wayvr::process::get_process_env_value,
 };
-
-/// Provides process observations without owning or waiting for processes.
-/// Environments remain raw bytes because they need not be UTF-8.
-pub trait ProcessInspector: Send {
-    /// Returns `None` when `key` is absent and preserves the value's bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an I/O error when the environment cannot be read. `NotFound`
-    /// means the process disappeared; `PermissionDenied` means access is denied.
-    fn read_environment(&self, pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>>;
-
-    /// Observes identity, parent PID, and liveness together. Missing and terminal
-    /// records are `Ended`; denied reads are `Unavailable`, never process death.
-    fn observe(&self, pid: Pid) -> ProcessObservation;
-}
 
 /// Uses the host's Linux `/proc` filesystem for process inspection.
 #[derive(Clone, Copy, Debug, Default)]

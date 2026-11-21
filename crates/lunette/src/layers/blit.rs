@@ -239,9 +239,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        import::formats::Alpha,
         layers::{LayerBudget, LayerSize, Priority, SessionId, SessionPresence},
         scene::SceneRendering,
+        texture::Alpha,
         texture::{CopyableTexture, FrameGeneration, TextureDescription},
     };
 

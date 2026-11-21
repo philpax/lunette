@@ -1,4 +1,4 @@
-//! Linux-only: wraps imported images and uploaded buffers as LÖVR textures.
+//! Wraps imported images and uploaded buffers as LÖVR textures.
 //!
 //! LÖVR owns the image view but not the imported image or memory, so the texture ledger defers
 //! image destruction until LÖVR releases the view.
@@ -8,10 +8,9 @@ mod tests;
 
 use std::{ffi::c_void, fmt, ptr::NonNull};
 
-use lunette_compositor::{
-    protocol::{ImageHandle, ImportedImage, PixelSize},
-    surface::{PixelBuffer, ShmFormat},
-};
+#[cfg(target_os = "linux")]
+use lunette_compositor::protocol::ImportedImage;
+use lunette_compositor::protocol::{ImageHandle, PixelBuffer, PixelFormat as ShmFormat, PixelSize};
 use lunette_lovr::raw::{
     TEXTURE_FEATURE_BLIT, TEXTURE_SAMPLE, TEXTURE_TRANSFER, Texture, TextureFormat,
     TextureFormat_FORMAT_BGRA8, TextureInfo, TextureType_TEXTURE_2D, lovrGraphicsGetFormatSupport,
@@ -20,13 +19,13 @@ use lunette_lovr::raw::{
     lovrTextureImportAcquire, lovrTextureImportRelease, lovrTextureSetPixels,
 };
 
-use crate::{
-    import::formats::mapping_for,
-    texture::{
-        BarrierPolicy, CopyableTexture, TextureDescription,
-        barrier::{acquire_arguments, release_arguments},
-    },
+use crate::texture::{
+    BarrierPolicy, CopyableTexture, TextureDescription,
+    barrier::{acquire_arguments, release_arguments},
 };
+
+#[cfg(target_os = "linux")]
+use crate::import::formats::mapping_for;
 
 /// An owned reference to a LÖVR texture.
 ///
@@ -40,6 +39,7 @@ pub struct LovrTexture {
 }
 
 impl LovrTexture {
+    #[cfg(target_os = "linux")]
     /// Wraps an imported image.
     ///
     /// # Safety
@@ -68,7 +68,7 @@ impl LovrTexture {
     ///
     /// # Safety
     ///
-    /// As [`LovrTexture::import`], minus the image.
+    /// LÖVR graphics must be initialized on the calling thread.
     pub unsafe fn upload(pixels: &PixelBuffer) -> Result<Self, TextureError> {
         let size = pixels.size();
         let format = shm_texture_format(pixels.format());
@@ -245,7 +245,7 @@ impl LovrTexture {
         Some(TextureShape {
             size: PixelSize::new(info.width, info.height),
             layers: info.layers,
-            format: info.format,
+            format: info.format as _,
             srgb: info.srgb,
         })
     }
@@ -365,7 +365,8 @@ fn covers(source: TextureShape, destination: TextureShape) -> bool {
 fn blit_supported(shape: TextureShape) -> bool {
     // SAFETY: LÖVR's graphics module is initialised, because a texture with
     // this shape exists.
-    let support = unsafe { lovrGraphicsGetFormatSupport(shape.format, TEXTURE_FEATURE_BLIT) };
+    let support =
+        unsafe { lovrGraphicsGetFormatSupport(shape.format as _, TEXTURE_FEATURE_BLIT as _) };
     support & (1 << u32::from(shape.srgb)) != 0
 }
 
@@ -375,13 +376,13 @@ fn blit_supported(shape: TextureShape) -> bool {
 fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bool) -> TextureInfo {
     TextureInfo {
         type_: TextureType_TEXTURE_2D,
-        format,
+        format: format as _,
         width: size.width,
         height: size.height,
         layers: 1,
         mipmaps: 1,
         samples: 1,
-        usage: TEXTURE_SAMPLE | TEXTURE_TRANSFER,
+        usage: (TEXTURE_SAMPLE | TEXTURE_TRANSFER) as _,
         // Preserve encoded desktop pixels for raw layer copies. Scene renderers
         // decode sRGB explicitly, unpremultiplying window alpha before decoding.
         srgb: false,

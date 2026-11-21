@@ -9,7 +9,7 @@ pub enum Source {
     Process(ProcessId),
 }
 
-/// The only supported public PCM format. PipeWire converts before this boundary.
+/// The only supported public PCM format. Native capture backends convert before this boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioFormat {
     sample_rate: u32,

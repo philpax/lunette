@@ -19,17 +19,11 @@ graphics-tests = []
 # exports neither the pointer nor a link-time symbol, so ash opens the same library itself.
 # `linked` is off. It would require a Vulkan SDK at build time, and the build needs no device.
 ash.workspace = true
-# `geteuid`, for the check that the control socket's directory is this user's.
-libc.workspace = true
 lunette-capture = { path = "../lunette-capture" }
 lunette-compositor = { path = "../lunette-compositor" }
 lunette-lovr = { path = "../lunette-lovr" }
 parking_lot.workspace = true
 serde_json.workspace = true
-# Provides the `Dmabuf`, `Fourcc`, and `Modifier` types the compositor's import seam uses.
-# The features stay at the base set: nothing here touches the frontend or the desktop helpers.
-# Cargo unifies this with the richer set that `lunette-compositor` enables.
-smithay.workspace = true
 ariadne = { workspace = true }
 clap = { workspace = true }
 # The Luau type language and the `closed_set!` macro.
@@ -53,6 +47,22 @@ tracing.workspace = true
 # Without it, the binary's log level cannot be changed through `RUST_LOG`.
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 unicode-segmentation.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The Unix control socket and the active-runtime manifest lookup use libc.
+libc.workspace = true
+# Provides the `Dmabuf`, `Fourcc`, and `Modifier` types the Linux import path uses.
+smithay.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = [
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 # `CapturedFrame::from_parts` exists under the `test-fakes` feature,

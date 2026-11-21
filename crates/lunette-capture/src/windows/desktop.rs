@@ -1,15 +1,24 @@
 //! Windows-only: enumerates the interactive desktop in physical pixels.
 
-use std::{ffi::c_void, mem::size_of};
+use std::{
+    ffi::c_void,
+    mem::size_of,
+    os::windows::io::{FromRawHandle, OwnedHandle},
+};
 
 use ::windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, RECT},
+        Foundation::{E_INVALIDARG, HWND, LPARAM, RECT},
         Graphics::{
             Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute},
             Gdi::{
-                EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
+                DISPLAY_DEVICEW, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, HDC,
+                HMONITOR, MONITORINFO, MONITORINFOEXW,
             },
+        },
+        System::Threading::{
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            QueryFullProcessImageNameW,
         },
         UI::{
             HiDpi::{
@@ -17,13 +26,16 @@ use ::windows::{
                 SetThreadDpiAwarenessContext,
             },
             WindowsAndMessaging::{
-                EnumWindows, GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
-                GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, WS_EX_TOOLWINDOW,
+                EDD_GET_DEVICE_INTERFACE_NAME, EnumWindows, GWL_EXSTYLE, GetWindowLongPtrW,
+                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+                IsIconic, IsWindowVisible, IsZoomed, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE,
+                SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, WS_EX_TOOLWINDOW,
             },
         },
     },
-    core::{BOOL, Error, Result},
+    core::{BOOL, Error, PCWSTR, PWSTR, Result},
 };
+use lunette_compositor::protocol::PixelSize;
 
 /// A rectangle in the virtual desktop's physical pixel coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +88,15 @@ impl WindowId {
         let handle = HWND(self.handle as *mut c_void);
         (Self::from_handle(handle) == Some(self)).then_some(handle)
     }
+
+    /// Opens the current owner only while the selected HWND still belongs to it.
+    pub fn process(self) -> std::io::Result<super::WindowsProcess> {
+        let gone = || std::io::Error::new(std::io::ErrorKind::NotFound, "the window disappeared");
+        self.live_handle().ok_or_else(gone)?;
+        let process = super::WindowsProcess::open(self.process)?;
+        self.live_handle().ok_or_else(gone)?;
+        Ok(process)
+    }
 }
 
 /// A window available for explicit selection.
@@ -99,11 +120,40 @@ impl MonitorId {
         &self.device
     }
 
+    /// Returns the device interface for an attached physical display, if Windows exposes one.
+    #[must_use]
+    pub fn interface(&self) -> Option<String> {
+        let device: Vec<_> = self.device.encode_utf16().chain([0]).collect();
+        let mut display = DISPLAY_DEVICEW {
+            cb: size_of::<DISPLAY_DEVICEW>() as u32,
+            ..DISPLAY_DEVICEW::default()
+        };
+        // SAFETY: the GDI device name is null-terminated and display is writable for its stated size.
+        if !unsafe {
+            EnumDisplayDevicesW(
+                PCWSTR(device.as_ptr()),
+                0,
+                &raw mut display,
+                EDD_GET_DEVICE_INTERFACE_NAME,
+            )
+        }
+        .as_bool()
+        {
+            return None;
+        }
+        let end = display.DeviceID.iter().position(|&unit| unit == 0)?;
+        (end != 0).then(|| String::from_utf16_lossy(&display.DeviceID[..end]))
+    }
+
     pub(super) fn live_handle(&self) -> Option<HMONITOR> {
         let handle = HMONITOR(self.handle as *mut c_void);
-        monitor_info(handle)
+        self.live_bounds().map(|_| handle)
+    }
+
+    pub(super) fn live_bounds(&self) -> Option<Bounds> {
+        monitor_info(HMONITOR(self.handle as *mut c_void))
             .filter(|monitor| monitor.id == *self)
-            .map(|_| handle)
+            .map(|monitor| monitor.bounds)
     }
 }
 
@@ -129,6 +179,38 @@ pub fn windows() -> Result<Vec<Window>> {
     Ok(windows)
 }
 
+/// Revalidates an explicitly selected window before starting capture.
+pub fn window(id: WindowId) -> Option<Window> {
+    let _dpi = DpiContext::enter();
+    window_info(id.live_handle()?).filter(|window| window.id == id)
+}
+
+/// Identifies an application's windows across desktop sessions.
+#[must_use]
+pub fn app_id(id: WindowId) -> Option<String> {
+    id.live_handle()?;
+    // SAFETY: OpenProcess returns an owned handle on success. OwnedHandle closes it on every exit.
+    let process =
+        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, id.process_id()) }.ok()?;
+    let _process = unsafe { OwnedHandle::from_raw_handle(process.0) };
+    let mut path = vec![0u16; 32_768];
+    let mut length = path.len() as u32;
+    // SAFETY: the process handle remains owned and the UTF-16 buffer has the advertised capacity.
+    unsafe {
+        QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(path.as_mut_ptr()),
+            &raw mut length,
+        )
+    }
+    .ok()?;
+    id.live_handle()?;
+    let name = String::from_utf16_lossy(path.get(..length as usize)?);
+    let name = std::path::Path::new(&name).file_name()?.to_str()?;
+    Some(format!("windows:{}", name.to_lowercase()))
+}
+
 unsafe extern "system" fn visit_window(handle: HWND, context: LPARAM) -> BOOL {
     if let Some(window) = window_info(handle) {
         // SAFETY: windows passes this exclusive pointer for the lifetime of the enumeration.
@@ -143,6 +225,7 @@ fn window_info(handle: HWND) -> Option<Window> {
     unsafe {
         if id.process_id() == std::process::id()
             || !IsWindowVisible(handle).as_bool()
+            || IsIconic(handle).as_bool()
             || GetWindowLongPtrW(handle, GWL_EXSTYLE) & WS_EX_TOOLWINDOW.0 as isize != 0
         {
             return None;
@@ -159,22 +242,83 @@ fn window_info(handle: HWND) -> Option<Window> {
         {
             return None;
         }
+        let title = read_title(handle)?;
+        let bounds = window_bounds(handle)?;
+        (id.live_handle().is_some()).then(|| Window { id, title, bounds })
+    }
+}
+
+fn read_title(handle: HWND) -> Option<String> {
+    // SAFETY: top-level foreign window text is read into an owned buffer. A closed handle fails.
+    unsafe {
         let length = GetWindowTextLengthW(handle);
         if length <= 0 {
             return None;
         }
         let mut title = vec![0; (length as usize).min(32_767) + 1];
         let read = usize::try_from(GetWindowTextW(handle, &mut title)).ok()?;
-        if read == 0 {
-            return None;
-        }
-        let bounds = window_bounds(handle)?;
-        (id.live_handle().is_some()).then(|| Window {
-            id,
-            title: String::from_utf16_lossy(&title[..read]),
-            bounds,
-        })
+        (read != 0).then(|| String::from_utf16_lossy(&title[..read]))
     }
+}
+
+/// Reads the latest caption, or returns `None` when the selected window has gone.
+#[must_use]
+pub fn window_title(id: WindowId) -> Option<Option<String>> {
+    let title = read_title(id.live_handle()?);
+    id.live_handle().map(|_| title)
+}
+
+/// Requests a size in visible capture pixels for a restored window.
+///
+/// # Errors
+///
+/// Returns a Win32 error if the outer bounds cannot be read or the size cannot be requested.
+pub fn resize_window(id: WindowId, size: PixelSize) -> Result<bool> {
+    let _dpi = DpiContext::enter();
+    let Some(handle) = id.live_handle() else {
+        return Ok(false);
+    };
+    // SAFETY: the window handle was revalidated and Win32 handles a concurrent close.
+    if unsafe { IsIconic(handle).as_bool() || IsZoomed(handle).as_bool() } {
+        return Ok(false);
+    }
+    let Some(visible) = window_bounds(handle) else {
+        return Ok(false);
+    };
+    let mut outer = RECT::default();
+    // SAFETY: this writes only the rectangle supplied for the revalidated window.
+    unsafe { GetWindowRect(handle, &raw mut outer) }?;
+    let width = outer_dimension(size.width, visible.width, outer.left, outer.right)?;
+    let height = outer_dimension(size.height, visible.height, outer.top, outer.bottom)?;
+    if id.live_handle() != Some(handle) {
+        return Ok(false);
+    }
+    // SAFETY: no user buffer is retained. Windows queues the resize to the window's own input thread.
+    unsafe {
+        SetWindowPos(
+            handle,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+        )
+    }?;
+    Ok(true)
+}
+
+fn outer_dimension(requested: u32, visible: u32, begin: i32, end: i32) -> Result<i32> {
+    let extent = i64::from(requested) + i64::from(end) - i64::from(begin) - i64::from(visible);
+    i32::try_from(extent)
+        .ok()
+        .filter(|size| *size > 0)
+        .ok_or_else(|| {
+            Error::new(
+                E_INVALIDARG,
+                "the requested window size is outside Win32 limits",
+            )
+        })
 }
 
 pub(super) fn window_bounds(handle: HWND) -> Option<Bounds> {

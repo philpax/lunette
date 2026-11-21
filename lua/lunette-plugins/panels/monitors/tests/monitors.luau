@@ -2,6 +2,7 @@ local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
+local menuContract = require '@lunette-contracts/menu'
 
 type Config = testing.ConfiguredInput<typeof(require('../').define)>
 
@@ -83,6 +84,35 @@ test('mirrors join a configured tag made after them', function()
   local main = tags.service:hold(tags.context, { name = 'main' })
   expect.truthy(main:has(mirrored), 'a mirror in a tag made after it')
   expect.truthy(main:has(assert(panels:forSource(hotplug(native, 'B')))), 'a mirror made after the tag')
+  session:close()
+end)
+
+test('a display requiring explicit sharing starts closed and can be shared and stopped from the wrist menu', function()
+  local native = testing.native()
+  local monitor = plug(native, 'A')
+  monitor.explicitShare = true
+  local session = testing.start {
+    'theme',
+    'panels',
+    'menu',
+    'frame',
+    { id = 'desktop/monitors', definition = require('../').definition },
+  }
+  local panels = session:observe(panelsContract.capability).service
+  local menu = session:observe(menuContract.capability).service
+  expect.equal(panels:forSource(monitor), nil, 'start without a display share')
+  expect.falsy(monitor.mirrored, 'enumeration does not start capture')
+  expect.equal(menu:invoke('desktop/monitors/A').kind, 'invoked')
+  expect.truthy(panels:forSource(monitor), 'open the display panel')
+  expect.truthy(monitor.mirrored, 'start capture after selection')
+  expect.equal(menu:invoke('desktop/monitors/A').kind, 'invoked')
+  expect.equal(panels:forSource(monitor), nil, 'remove the display panel')
+  expect.falsy(monitor.mirrored, 'stop capture')
+  local second = plug(native, 'B')
+  second.explicitShare = true
+  native.emit('onMonitorAdded', { monitor = second })
+  expect.falsy(second.mirrored, 'hotplug does not start capture')
+  expect.equal(menu:invoke('desktop/monitors/B').kind, 'invoked', 'the new display is selectable')
   session:close()
 end)
 

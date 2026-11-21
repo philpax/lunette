@@ -15,7 +15,9 @@ mod input;
 mod keymap;
 mod process;
 
-use std::{fmt, num::NonZeroU64, sync::Arc};
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
+use std::{fmt, num::NonZeroU64};
 
 use lunette_luau::closed_set;
 use smallvec::SmallVec;
@@ -34,9 +36,9 @@ pub use crate::protocol::{
     },
     process::{
         Argv, AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId,
-        AudioNodeSerial, Pid, PipeWireGeneration, ProcessInstance, ProcessObservation,
-        ProcessObservationFailure, ProcessOutcome, ProcessSignal, SignalNumber, SpawnRequest,
-        Stream,
+        AudioNodeSerial, Pid, PipeWireGeneration, ProcessInspector, ProcessInstance,
+        ProcessObservation, ProcessObservationFailure, ProcessOutcome, ProcessSignal, SignalNumber,
+        SpawnRequest, Stream,
     },
 };
 #[cfg(target_os = "linux")]
@@ -453,6 +455,7 @@ pub struct SeatSnapshot {
     /// The name reported on `wl_seat.name`; clients use it to distinguish
     /// two seats.
     pub name: String,
+    #[cfg(target_os = "linux")]
     pub keymap: Arc<KeymapText>,
     /// The modifiers held by this seat, as last reported to clients.
     pub modifiers: ModifierState,

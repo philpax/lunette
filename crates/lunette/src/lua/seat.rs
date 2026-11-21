@@ -1,4 +1,4 @@
-//! Linux-only: implements seat handles for Lua.
+//! Implements seat handles for Lua.
 //!
 //! Each Wayland seat provides one pointer and keyboard, so multiple pointers require multiple
 //! seats. The Lua thread compiles its own keymaps because libxkbcommon is not thread-safe.
@@ -10,13 +10,21 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lunette_compositor::{
     config::DEFAULT_SEAT,
-    keymap::Keymap,
     protocol::{
-        Command, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState, RepeatDelay,
-        RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
+        Command, KeyboardConfig, KeymapConfig, ModifierState, RepeatDelay, RepeatPolicy,
+        RepeatRate, SeatId, SeatSnapshot,
     },
 };
-use mlua::{Lua, Table, UserDataRef, Value};
+use mlua::{Lua, Table, UserDataRef};
+
+#[cfg(target_os = "linux")]
+use {
+    lunette_compositor::{
+        keymap::Keymap,
+        protocol::{Keycode, Keysym},
+    },
+    mlua::Value,
+};
 
 use crate::{
     control::wire::HandleKind,
@@ -71,6 +79,7 @@ impl<T> Seat<T> {
     }
 
     /// Returns this seat's compiled keymap, or `None` when the seat is absent.
+    #[cfg(target_os = "linux")]
     fn keymap(&self) -> Option<Rc<Keymap>> {
         if !self.refresh() {
             return None;
@@ -140,25 +149,24 @@ handle! {
 
     /// Returns the keysym for a keycode and modifier set in this seat's keymap.
     method symbolFor(_lua, this, key: u32, names: Option<Vec<ModifierName>>) -> Option<u32> {
-        let modifiers = read_modifiers(names.as_deref());
-        Ok(this
-            .keymap()
-            .and_then(|keymap| keymap.symbol(Keycode::from_evdev(key), &modifiers))
-            .map(Keysym::raw))
+        symbol_for(this, key, names.as_deref())
     }
 
     /// Returns the character for a keycode and modifier set.
     method characterFor(_lua, this, key: u32, names: Option<Vec<ModifierName>>) -> Option<String> {
-        let modifiers = read_modifiers(names.as_deref());
-        Ok(this
-            .keymap()
-            .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
+        character_for(this, key, names.as_deref())
     }
 
     /// Returns the keycode and modifiers that produce a character or keysym.
     /// A string must contain one character; a number names a keysym.
     method strokeFor(_lua, this, wanted: StrokeQuery) -> Option<Stroke> {
-        stroke_for(this, &wanted.0)
+        #[cfg(target_os = "linux")]
+        return stroke_for(this, &wanted.0);
+        #[cfg(windows)]
+        {
+            let _ = (this, wanted);
+            Ok(None)
+        }
     }
 }
 
@@ -443,10 +451,69 @@ fn set_clipboard_bridge<T>(seat: &Seat<T>, bridged: bool) -> bool {
     true
 }
 
+#[cfg(target_os = "linux")]
+fn symbol_for<T>(
+    seat: &Seat<T>,
+    key: u32,
+    names: Option<&[ModifierName]>,
+) -> mlua::Result<Option<u32>> {
+    let modifiers = read_modifiers(names);
+    Ok(seat
+        .keymap()
+        .and_then(|map| map.symbol(Keycode::from_evdev(key), &modifiers))
+        .map(Keysym::raw))
+}
+
+#[cfg(windows)]
+fn symbol_for<T>(
+    seat: &Seat<T>,
+    key: u32,
+    names: Option<&[ModifierName]>,
+) -> mlua::Result<Option<u32>> {
+    Ok(character_for(seat, key, names)?.and_then(|text| {
+        let mut chars = text.chars();
+        let character = chars.next()?;
+        chars
+            .next()
+            .is_none()
+            .then_some(lunette_compositor::protocol::Keysym::from_char(character).raw())
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn character_for<T>(
+    seat: &Seat<T>,
+    key: u32,
+    names: Option<&[ModifierName]>,
+) -> mlua::Result<Option<String>> {
+    let modifiers = read_modifiers(names);
+    Ok(seat
+        .keymap()
+        .and_then(|map| map.character(Keycode::from_evdev(key), &modifiers)))
+}
+
+#[cfg(windows)]
+fn character_for<T>(
+    seat: &Seat<T>,
+    key: u32,
+    names: Option<&[ModifierName]>,
+) -> mlua::Result<Option<String>> {
+    Ok(seat
+        .refresh()
+        .then(|| {
+            lunette_capture::windows::character(
+                lunette_compositor::protocol::Keycode::from_evdev(key),
+                &read_modifiers(names),
+            )
+        })
+        .flatten())
+}
+
 /// Returns the key and modifiers that produce a character or keysym.
 ///
 /// A string must contain one character; a number is treated as a keysym. Text entry uses
 /// `sink:typeText`.
+#[cfg(target_os = "linux")]
 fn stroke_for<T: LuaTexture>(seat: &Seat<T>, wanted: &Value) -> mlua::Result<Option<Stroke>> {
     let Some(keymap) = seat.keymap() else {
         return Ok(None);
@@ -494,6 +561,7 @@ record! {
 }
 
 /// A modifier set as the array of names Lua reads.
+#[cfg(target_os = "linux")]
 fn named(modifiers: &ModifierState) -> Vec<ModifierName> {
     modifiers.into_iter().copied().map(ModifierName).collect()
 }

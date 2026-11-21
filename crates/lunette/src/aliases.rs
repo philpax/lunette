@@ -211,7 +211,8 @@ fn render_luaurc(root: &str, aliases: &[Alias]) -> String {
     let mut out = String::from("{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n");
     for (index, alias) in aliases.iter().enumerate() {
         let separator = if index + 1 == aliases.len() { "" } else { "," };
-        let _ = writeln!(out, "    \"{0}\": \"{root}/{0}\"{separator}", alias.name);
+        let path = serde_json::Value::String(format!("{root}/{}", alias.name));
+        let _ = writeln!(out, "    \"{}\": {path}{separator}", alias.name);
     }
     out.push_str("  }\n}\n");
     out

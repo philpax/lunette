@@ -1,4 +1,4 @@
-//! Linux-only: the FFI surface for the lunette fork of LÖVR.
+//! The FFI surface for the lunette fork of LÖVR.
 //!
 //! Everything the workspace needs from LÖVR passes through this crate, while orchestration belongs to the `lunette` binary.
 

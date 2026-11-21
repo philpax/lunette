@@ -104,7 +104,10 @@ unsafe extern "system" fn paint(
 
 #[test]
 #[ignore = "requires an interactive Windows desktop with Windows Graphics Capture"]
-#[expect(clippy::expect_used, reason = "a failed native fixture prerequisite fails this test")]
+#[expect(
+    clippy::expect_used,
+    reason = "a failed native fixture prerequisite fails this test"
+)]
 fn captures_resizes_and_closes_a_native_window() {
     let _dpi = DpiContext::enter();
     assert!(!monitors().expect("monitor enumeration succeeds").is_empty());
@@ -175,4 +178,5 @@ fn captures_resizes_and_closes_a_native_window() {
     fixture.0 = HWND::default();
     assert!(!close(target).expect("a closed window is no longer a target"));
     assert!(capture.latest().is_none());
+    capture.stop().expect("capture worker shuts down");
 }

@@ -4,6 +4,8 @@
 
 `vendor/lovr` points at `philpax/lovr`'s `lunette` branch, rebased onto upstream `dev`. Clone recursively. Patches stay narrow and additive unless they fix an upstream defect. The internal OpenVR backend is a deliberate larger exception: LÖVR still owns every headset session, and OpenXR behavior and defaults must remain intact.
 
+Windows builds link the C++ analysis shim into the LÖVR DLL. Luau assigns AST class IDs through static registration, so the parser and shim must use the same registrations. The Rust bridge accesses the shim through its C interface.
+
 The nested Luau fork retains LÖVR's vector, quaternion, and Lua-ABI additions plus mlua requirements. Its upstream updates are merged rather than rebased. Both forks use a `lunette` branch. Their `.gitmodules` entries set `update = rebase` to preserve an attached branch during ordinary submodule updates; initial clones still require attaching the branch, and an explicit `--checkout` can detach it. Submodule commits must be pushed before parent pointers; unresolved pointers break fresh clones. [Contribution rules](../../../CONTRIBUTING.md) own fork workflow.
 
 ## The patch set

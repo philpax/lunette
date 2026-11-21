@@ -1,20 +1,28 @@
-//! Linux-only: where a host sink's input goes.
+//! Where a host sink's input goes.
 //!
 //! A host sink reaches the user's desktop through `lunette-capture`'s `HidProvider`, not a
 //! hosted client. Every host sink shares one cursor and one keyboard focus, because the host
 //! desktop has one of each.
 
-use std::{cell::RefCell, fmt};
+use std::fmt;
 
 use lunette_capture::{
     hid::{
-        DesktopLayout, HostInput, KeyModifiers, MonitorMapping, PanelPoint,
-        PointerButton as HostButton, ProviderError, VirtualKey, WheelDelta, XkbKeymap,
+        KeyModifiers, PanelPoint, PointerButton as HostButton, VirtualKey, WheelDelta, XkbKeymap,
     },
-    monitor::{MonitorKey, Roster},
+    monitor::MonitorKey,
 };
 use lunette_compositor::protocol::{KeyModifier, Keycode, ModifierState, PointerButton};
-use tracing::{debug, warn};
+
+#[cfg(target_os = "linux")]
+use {
+    lunette_capture::{
+        hid::{DesktopLayout, HostInput, MonitorMapping, ProviderError},
+        monitor::Roster,
+    },
+    std::cell::RefCell,
+    tracing::{debug, warn},
+};
 
 /// The host desktop, as a sink reaches it.
 ///
@@ -61,12 +69,14 @@ pub trait HostSinks: fmt::Debug {
 ///
 /// The mappings are rebuilt from the roster, because an incremental update is
 /// easier to get wrong when a monitor move changes the bounding box.
+#[cfg(target_os = "linux")]
 pub struct HostPointer {
     input: RefCell<HostInput>,
     /// One mapping per mappable monitor, in the roster's own order.
     monitors: RefCell<Vec<(MonitorKey, MonitorMapping)>>,
 }
 
+#[cfg(target_os = "linux")]
 impl HostPointer {
     #[must_use]
     pub const fn new(input: HostInput) -> Self {
@@ -107,6 +117,7 @@ impl HostPointer {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl fmt::Debug for HostPointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HostPointer")
@@ -115,6 +126,7 @@ impl fmt::Debug for HostPointer {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl HostSinks for HostPointer {
     fn pointer(&self, monitor: &MonitorKey, hit: PanelPoint) -> bool {
         let Some(position) = self
@@ -168,6 +180,7 @@ impl HostSinks for HostPointer {
 ///
 /// Driving the host desktop is best-effort, so a Lua caller gets a boolean and
 /// the reason goes to the log.
+#[cfg(target_os = "linux")]
 fn report(context: &str, call: impl FnOnce() -> Result<(), ProviderError>) -> bool {
     match call() {
         Ok(()) => true,

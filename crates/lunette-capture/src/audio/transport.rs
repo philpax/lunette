@@ -50,7 +50,7 @@ impl TransportLoss {
     }
 }
 
-/// A borrowed interleaved F32LE SPA data plane. Offsets are bytes, not samples.
+/// A borrowed interleaved F32LE capture packet. Offsets and sizes count bytes.
 pub struct PcmPacket<'a> {
     pub bytes: &'a [u8],
     pub offset: usize,
@@ -143,18 +143,18 @@ impl AudioProducer {
             .zip(self.published_frames.checked_add(frames as u64));
         if self.exhausted || counters.is_none() {
             self.exhausted = true;
-            self.drop_packet(frames, false);
+            self.drop_packet(frames as u64, false);
             return PacketResult::IdentifierExhausted;
         }
         self.sequence += 1;
         self.first_frame += frames as u64;
         // The finite-sample scan is bounded even for a malformed oversized plane.
         if frames > TRANSPORT_FRAMES {
-            self.drop_packet(frames, false);
+            self.drop_packet(frames as u64, false);
             return PacketResult::Overrun;
         }
         let Some(bytes) = valid_bytes(&packet) else {
-            self.drop_packet(frames, true);
+            self.drop_packet(frames as u64, true);
             return PacketResult::Malformed;
         };
         let queued_frames = self
@@ -166,11 +166,11 @@ impl AudioProducer {
         if queued_frames + frames as u64 > TRANSPORT_FRAMES as u64
             || queued_packets >= TRANSPORT_PACKETS as u64
         {
-            self.drop_packet(frames, false);
+            self.drop_packet(frames as u64, false);
             return PacketResult::Overrun;
         }
         let Ok(mut packet_chunk) = self.queue.write_chunk(frames + 1) else {
-            self.drop_packet(frames, false);
+            self.drop_packet(frames as u64, false);
             return PacketResult::Overrun;
         };
         let (one, two) = packet_chunk.as_mut_slices();
@@ -196,11 +196,27 @@ impl AudioProducer {
         PacketResult::Accepted
     }
 
-    fn drop_packet(&mut self, frames: usize, malformed: bool) {
+    #[cfg(windows)]
+    pub(super) fn discontinuity(&mut self, frames: u64) {
+        match self
+            .sequence
+            .checked_add(1)
+            .zip(self.first_frame.checked_add(frames))
+        {
+            Some((sequence, first_frame)) => {
+                self.sequence = sequence;
+                self.first_frame = first_frame;
+            }
+            None => self.exhausted = true,
+        }
+        self.drop_packet(frames, false);
+    }
+
+    fn drop_packet(&mut self, frames: u64, malformed: bool) {
         self.gap.packets = self.gap.packets.saturating_add(1);
-        self.gap.frames = self.gap.frames.saturating_add(frames as u64);
+        self.gap.frames = self.gap.frames.saturating_add(frames);
         self.total_loss.packets = self.total_loss.packets.saturating_add(1);
-        self.total_loss.frames = self.total_loss.frames.saturating_add(frames as u64);
+        self.total_loss.frames = self.total_loss.frames.saturating_add(frames);
         if malformed {
             self.total_loss.malformed_packets = self.total_loss.malformed_packets.saturating_add(1);
         }
@@ -461,6 +477,25 @@ mod tests {
         let cutoff = rx.snapshot();
         assert!(rx.drain(cutoff, PipeWireGeneration(3)).is_empty());
         assert_eq!(rx.snapshot().queued_packets, 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_discontinuity_advances_sample_time_and_marks_the_next_block() {
+        let generation = PipeWireGeneration(2);
+        let (mut tx, mut rx) = audio_transport(generation);
+        assert_eq!(tx.push(packet(&[0; 16])), PacketResult::Accepted);
+        tx.discontinuity(480);
+        assert_eq!(tx.push(packet(&[0; 8])), PacketResult::Accepted);
+
+        let cutoff = rx.snapshot();
+        assert_eq!(cutoff.loss.frames, 480);
+        let blocks = rx.drain(cutoff, generation);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[1].timing.first_frame, 482);
+        assert_eq!(blocks[1].timing.sequence, 2);
+        assert_eq!(blocks[1].gap_frames, 480);
+        assert_eq!(blocks[1].gap_packets, 1);
     }
 
     #[test]

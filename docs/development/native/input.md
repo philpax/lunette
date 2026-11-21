@@ -6,7 +6,7 @@ Lua owns scene geometry and converts XR poses to pixel-space hits. Rust receives
 
 ## Seats
 
-Each native seat has independent pointer, keyboard focus, and key state. Pointer motion does not take keyboard focus. The default seat lives with the compositor and cannot be destroyed. Other seats withdraw their globals and send leaves when destroyed. Multiple seats are native mechanism; Lua can choose to use one. Simulating several pointers over one seat cannot provide independent state.
+Each Wayland seat has independent pointer, keyboard focus, and key state. Pointer motion does not take keyboard focus. The default seat lives with the compositor and cannot be destroyed. Other seats withdraw their globals and send leaves when destroyed. Multiple seats are native mechanism; Lua can choose to use one. Simulating several pointers over one seat cannot provide independent state.
 
 ### Seat lifetime
 
@@ -31,6 +31,10 @@ Host keyboard delivery uploads the seat layout before keys and refuses missing s
 ## Drag and drop
 
 A release goes to the sink that received its press, even after hover moves. This preserves the client's implicit grab. The current hover determines the native drop target. [Compositor drag state](compositor.md#drag-and-drop) owns cancellation and icons. Host-to-lunette drag-and-drop is unsupported.
+
+## Windows
+
+The controller lasers retain separate Lunette seats for hovering and focus. A native click selects which seat can type into the foreground app. Windows supplies one physical pointer and keyboard, so whichever seat presses a mouse button first owns the drag until release. Native applications use the Windows clipboard through their ordinary shortcuts.
 
 ## XR backend
 

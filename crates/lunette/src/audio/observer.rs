@@ -10,10 +10,8 @@ use std::{
 };
 
 use lunette_capture::audio::{AudioError, AudioProcessCandidate};
-use lunette_compositor::{
-    protocol::{AudioAttributionReply, ProcessObservation},
-    spawn::ProcessInspector,
-};
+use lunette_compositor::protocol::ProcessInspector;
+use lunette_compositor::protocol::{AudioAttributionReply, ProcessObservation};
 
 #[derive(Clone, Copy)]
 pub(super) enum ObservationJob {

@@ -931,6 +931,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+ "windows",
 ]
 
 [[package]]
@@ -955,6 +956,7 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
  "windows",
+ "windows-core",
  "wlx-capture",
  "xkbcommon",
 ]
