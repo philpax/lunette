@@ -39,11 +39,11 @@ Focusing a UI text field shows the shared keyboard. Hiding it ends focus and kee
 
 ## Windows, monitors, and workspaces
 
-On Windows, the wrist menu's Windows group lists visible application windows. Refresh window list updates the entries. Selecting a window opens its panel and leaves the other panels available. Select **Stop sharing** next to a captured window to remove its panel and keep the application open. A panel follows changes to the application window's size and closes when the application closes. The panel titlebar's close button asks Windows to close the application window.
+On Windows, the wrist menu's Windows group lists visible application windows. Refresh window list updates the entries. Selecting a window opens its panel and leaves the other panels available. The default arc arranges unplaced windows around the current view whenever the layout changes. Dragging a window keeps it at the position where it was dropped. Select **Stop sharing** next to a captured window to remove its panel and keep the application open. A panel follows changes to the application window's size and closes when the application closes. The panel titlebar's close button asks Windows to close the application window.
 
 Windows panel content accepts clicks and drags on exposed parts of the window. Clicking a window gives it focus for typing, shortcuts, and scrolling. Windows foreground focus can change outside VR. A covered point refuses pointer input, and text and shortcuts require the target window to hold foreground focus.
 
-On SteamVR, eligible windows and flat title bars use native overlays by default. The wrist menu is flat on SteamVR so its content can use the same compositor. The panels setting `rendering = 'plane'` draws app windows and their title bars in the scene.
+On SteamVR, eligible app windows, the keyboard, and flat toolkit panels use native overlays by default. The wrist menu is flat on SteamVR so its content can use the same compositor. Curved toolkit panels and panels with volume visuals draw in the scene. The panels setting `rendering = 'plane'` draws app windows and their title bars in the scene.
 
 The Monitors group lists attached Windows displays. Select a display to share it, then select it again or close its panel to stop sharing. Lunette starts each session with display sharing off. A live display mirror takes clicks, drags, and wheel input on its display. Click an app in the mirror to direct typing and shortcuts to it while it has Windows foreground focus. Pausing the mirror also pauses its input.
 

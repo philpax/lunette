@@ -1,11 +1,11 @@
 -- Presents eligible toolkit panels as planar SteamVR overlays.
 
 local records = require '../records'
+local quad = require '@lunette-plugins/graphics/steamvr-quad'
 
 local native = {}
 
-type Held = { width: number, height: number, layer: Layer }
-export type Cache = { [records.Panel]: Held }
+export type Cache = { [records.Panel]: quad.Held }
 export type Frame = {
   layers: { Layer },
   passes: { Pass },
@@ -23,43 +23,20 @@ function native.clear(cache: Cache, used: { [records.Panel]: boolean }?): ()
 end
 
 function native.begin(): Frame?
-  local headset = lovr.headset
-  if not headset or not headset.getDriver or headset.getDriver() ~= 'SteamVR' or not headset.isActive() then
-    return nil
-  end
-  return { layers = headset.getLayers(), passes = {}, used = {}, limit = headset.getLayerLimit() }
-end
-
-local function pixels(metres: number): number
-  return math.clamp(math.ceil(metres * 225) * 8, 16, 1536)
+  local layers = quad.layers()
+  return if layers then { layers = layers, passes = {}, used = {}, limit = lovr.headset.getLayerLimit() } else nil
 end
 
 function native.prepare(cache: Cache, frame: Frame, panel: records.Panel): (Pass?, Layer?)
   local prefer = panel.options and panel.options.nativeLayer
-  if panel.curve ~= 0 or #frame.layers >= frame.limit or not prefer or not prefer() then
+  if panel.curve ~= 0 or #frame.layers >= frame.limit or (prefer and not prefer()) then
     return nil, nil
   end
 
   local width, height = panel.width * panel.scale, panel.height * panel.scale
-  local px, py = pixels(width), pixels(height)
-  local held = cache[panel]
-  if not held or held.width ~= px or held.height ~= py then
-    local layer = lovr.headset.newLayer(px, py, { transparent = true })
-    if held then
-      held.layer:release()
-    end
-    held = { width = px, height = py, layer = layer }
-    cache[panel] = held
-  end
-  local layer = held.layer
-  layer:setPosition(panel.pose:getPosition())
-  layer:setOrientation(panel.pose:getOrientation())
-  layer:setDimensions(width, height)
-  local pass = layer:getPass()
-  pass:setViewPose(1, lovr.math.mat4(panel.pose):translate(0, 0, 1), false)
-  -- Use Vulkan's Y direction and the same reversed depth as the scene's toolkit draws.
-  pass:setProjection(1, lovr.math.mat4():orthographic(-width / 2, width / 2, height / 2, -height / 2, 2, 0.01))
-  return pass, layer
+  local held = quad.acquire(cache[panel], width, height)
+  cache[panel] = held
+  return quad.pass(held.layer, panel.pose, width, height), held.layer
 end
 
 function native.append(frame: Frame, panel: records.Panel, pass: Pass, layer: Layer): ()

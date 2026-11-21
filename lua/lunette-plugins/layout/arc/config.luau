@@ -10,6 +10,7 @@ local TUNING = schema.object {
 local SCHEMA = schema.object {
   -- The name the layout registers under.
   name = schema.default(schema.string { minLength = 1 }) 'arc',
+  anchor = schema.default(schema.enum<<'auto' | 'origin' | 'head'>> { 'auto', 'origin', 'head' }) 'auto',
   tuning = schema.default(TUNING)(TUNING.parse {}),
 }
 

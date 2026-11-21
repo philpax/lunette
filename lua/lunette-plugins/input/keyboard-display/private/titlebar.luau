@@ -21,7 +21,8 @@ function titlebar.new(
   host: uiHost.Service,
   components: uiComponents.Service,
   board: keyboard.Keyboard,
-  close: () -> ()
+  close: () -> (),
+  nativeLayer: () -> boolean
 ): Titlebar
   local panel = host:newPanel(owner, {
     name = 'desktop/keyboard/titlebar',
@@ -30,6 +31,7 @@ function titlebar.new(
     height = host:theme().sizes.header,
     gap = GAP,
     visible = false,
+    nativeLayer = nativeLayer,
   })
   panel.root:bind {
     render = function(): ()

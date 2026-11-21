@@ -8,6 +8,7 @@ local surfaces = require '@lunette-contracts/surfaces'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local listeners = require '@lunette-plugins/registration/listeners'
+local quad = require '@lunette-plugins/graphics/steamvr-quad'
 local place = require './placement'
 local titlebar = require './titlebar'
 local config = require '../config'
@@ -26,6 +27,8 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local components = context:require(uiComponents.capability)
   local board: keyboard.Keyboard? = nil
   local bar: titlebar.Titlebar? = nil
+  local layer: quad.Held? = nil
+  local native = false
   local stopped, visible, manual = false, false, false
   -- The local target whose focus requested automatic visibility.
   local auto: focus.TargetHandle? = nil
@@ -41,6 +44,12 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   end
   local function shown(): boolean
     return live() and visible and suppressors == 0
+  end
+  local function releaseLayer(): ()
+    if layer then
+      layer.layer:release()
+      layer = nil
+    end
   end
   local function notify(reason: keyboard.VisibilityReason): ()
     revision += 1
@@ -100,6 +109,8 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     board = target
     bar = titlebar.new(context, host, components, target, function(): ()
       hide()
+    end, function(): boolean
+      return native
     end)
     return target
   end
@@ -143,6 +154,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   context:effect(function(): () -> ()
     return function(): ()
       stopped, visible = true, false
+      releaseLayer()
       notify 'destroy'
       subscribers:clear()
     end
@@ -186,11 +198,28 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   clock:onDraw(context, {
     phase = 'scene',
     order = 1,
-    run = function(pass: Pass): ()
+    run = function(pass: Pass): { Pass }?
+      native = false
       local target = board
-      if shown() and target and not target.dead then
-        target:draw(pass)
+      if not shown() or not target or target.dead then
+        releaseLayer()
+        return nil
       end
+      -- Keep a slot for the titlebar, which the UI host draws next.
+      local layers = quad.layers()
+      if layers and #layers + 2 <= lovr.headset.getLayerLimit() and target.width > 0 and target.height > 0 then
+        local held = quad.acquire(layer, target.width, target.height)
+        layer = held
+        local overlay = quad.pass(held.layer, target.pose, target.width, target.height)
+        target:draw(overlay)
+        layers[#layers + 1] = held.layer
+        lovr.headset.setLayers(layers)
+        native = true
+        return { overlay }
+      end
+      releaseLayer()
+      target:draw(pass)
+      return nil
     end,
   })
 
