@@ -5,14 +5,15 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-calloop.workspace = true
-# The host clipboard client implements the compositor's `HostSelectionSource`
-# seam and speaks its selection vocabulary.
+# Provides the owned pixels passed across the frame boundary.
 lunette-compositor = { path = "../lunette-compositor" }
+parking_lot.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+calloop.workspace = true
 lunette-luau.workspace = true
 # `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
 libc.workspace = true
-parking_lot.workspace = true
 pipewire.workspace = true
 rtrb.workspace = true
 serde_json.workspace = true
@@ -39,12 +40,33 @@ wayland-protocols-misc = { workspace = true, features = ["client"] }
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = [
+    "Graphics_Capture",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [features]
 # Exposes `CapturedFrame::from_parts` to other crates' tests.
 test-fakes = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 # Checks `VirtualKey` against xkeyboard-config's evdev keycodes.
 xkbcommon.workspace = true
 

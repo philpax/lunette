@@ -4,6 +4,8 @@
 //! launcher keys use keysyms because xkeyboard-config does not assign them
 //! physical names. The checked-in keymap pins the data version across distributions.
 
+#![cfg(target_os = "linux")]
+
 use lunette_capture::hid::VirtualKey;
 use xkbcommon::xkb;
 

@@ -47,3 +47,11 @@ The pinned direct backend cannot cancel or join a dropped worker, pause does not
 PipeWire identifier reuse and delayed removal can stop a newly granted stream. Roster/node ordering can also mistake unplug for revocation; loss of the watch connection disables revocation detection for the run. Exposing the portal session's closure upstream would remove these limits.
 
 There is no provider-order option. Hosts that bind absolute uinput to one display may have no usable whole-layout pointer until libei support. Host scroll conversion remains unmeasured, and dynamic output scale can flicker in clients such as GTK. Live checks must establish capture orientation, permission and revocation behavior, hotplug identity, host pointer mapping, keyboard layout, scrolling, and clipboard transfer on the intended host.
+
+## Windows
+
+The Windows backend in `lunette-capture` lists top-level application windows and physical displays in desktop pixels. It opens Windows Graphics Capture for a selected window or display and leaves the system capture indicator enabled. A worker owns the capture session and D3D11 readback. Its one-entry mailbox carries the newest BGRA8 buffer to the frame thread. The backend recreates the frame pool on resize and reports when Windows closes the capture or the target disappears.
+
+Windows shares one foreground window and one cursor. Input goes through the desktop and can be refused by Windows. Text entry requires the selected window to be foreground. A click requires the selected window to own the hit point.
+
+Run `cargo test -p lunette-capture --lib -- --ignored` from an interactive Windows desktop to verify capture and resize with the test window. The backend is currently available at the Rust capture boundary. The Lunette session entry point still uses the Linux host implementation.

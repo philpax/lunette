@@ -39,6 +39,8 @@ use crate::{
     wayvr::{SurfaceBufWithImage, comp::Application},
 };
 
+pub use crate::pixels::{PixelBuffer, PixelFormat as ShmFormat};
+
 /// Maps compositor-thread surface objects to stable identifiers.
 ///
 /// Identifiers are minted in order and never reused, so a stale [`SurfaceId`]
@@ -149,48 +151,6 @@ impl BufferImporter for NoGraphics {
 
 const NO_DEVICE: &str = "lunette has no graphics device while a restart is in progress";
 
-/// Compositor-owned pixels packed as `width * height * 4` bytes for texture upload.
-///
-/// Construction rejects any other length, so consumers can use the dimensions without
-/// repeating the size check.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PixelBuffer {
-    size: PixelSize,
-    format: ShmFormat,
-    pixels: Vec<u8>,
-}
-
-impl PixelBuffer {
-    #[must_use]
-    pub fn new(size: PixelSize, format: ShmFormat, pixels: Vec<u8>) -> Option<Self> {
-        let expected = usize::try_from(size.width)
-            .ok()?
-            .checked_mul(usize::try_from(size.height).ok()?)?
-            .checked_mul(ShmFormat::BYTES_PER_PIXEL as usize)?;
-
-        (pixels.len() == expected).then_some(Self {
-            size,
-            format,
-            pixels,
-        })
-    }
-
-    #[must_use]
-    pub fn size(&self) -> PixelSize {
-        self.size
-    }
-
-    #[must_use]
-    pub fn format(&self) -> ShmFormat {
-        self.format
-    }
-
-    #[must_use]
-    pub fn pixels(&self) -> &[u8] {
-        &self.pixels
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportFailed {
     message: String,
@@ -221,23 +181,7 @@ pub struct ShmLayout {
     pub format: ShmFormat,
 }
 
-/// A shared-memory pixel format supported by lunette.
-///
-/// Lunette accepts the two formats required by `wl_shm`; other protocol
-/// formats are rejected, since an importer without support for them cannot
-/// accept them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ShmFormat {
-    /// Little-endian bytes in `[B, G, R, A]` order.
-    Argb8888,
-    /// Little-endian bytes in `[B, G, R, X]` order. The importer sets the fourth
-    /// byte to opaque alpha before upload.
-    Xrgb8888,
-}
-
 impl ShmFormat {
-    pub const BYTES_PER_PIXEL: u32 = 4;
-
     #[must_use]
     pub fn from_protocol(format: wl_shm::Format) -> Option<Self> {
         match format {

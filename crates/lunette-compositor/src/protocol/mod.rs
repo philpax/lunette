@@ -19,8 +19,10 @@ use std::{fmt, num::NonZeroU64, sync::Arc};
 
 use lunette_luau::closed_set;
 use smallvec::SmallVec;
+#[cfg(target_os = "linux")]
 use smithay::backend::allocator::{Fourcc, Modifier};
 
+pub use crate::pixels::{PixelBuffer, PixelFormat};
 pub use crate::protocol::{
     input::{
         InputDomain, KeyModifier, Keycode, Keysym, PointerButton, SURFACE_UNITS_PER_DETENT,
@@ -37,12 +39,13 @@ pub use crate::protocol::{
         Stream,
     },
 };
-use crate::surface::{BufferImporter, PixelBuffer};
+#[cfg(target_os = "linux")]
+use crate::surface::BufferImporter;
 
 /// An asynchronous request from the main thread to the compositor thread.
 ///
 /// Results are reported through [`Event`] and [`Snapshot`]. This type is not
-/// `Clone` because [`Command::AdoptGraphics`] transfers the sole importer for a
+/// `Clone` because the Linux backend transfers the sole importer for a
 /// graphics device.
 #[derive(Debug)]
 pub enum Command {
@@ -169,6 +172,7 @@ pub enum Command {
     /// The compositor emits [`Event::BufferImported`] for each retained buffer
     /// it restores, followed by [`Event::GraphicsAdopted`]. The importer is
     /// owned, not shared, so one device has one import cache.
+    #[cfg(target_os = "linux")]
     AdoptGraphics {
         importer: Box<dyn BufferImporter>,
     },
@@ -517,6 +521,7 @@ pub struct OutputMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportedBuffer {
     /// An image already on the graphics device.
+    #[cfg(target_os = "linux")]
     Image(ImportedImage),
     /// Tightly packed pixels awaiting an upload.
     Pixels(PixelBuffer),
@@ -526,6 +531,7 @@ impl ImportedBuffer {
     #[must_use]
     pub fn size(&self) -> PixelSize {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Image(image) => image.size,
             Self::Pixels(pixels) => pixels.size(),
         }
@@ -538,6 +544,7 @@ impl ImportedBuffer {
 /// The main thread owns the image's lifetime and must keep it alive while the
 /// graphics library holds a view onto it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(target_os = "linux")]
 pub struct ImportedImage {
     pub image: ImageHandle,
     pub size: PixelSize,
