@@ -43,6 +43,8 @@ On Windows, the wrist menu's Windows group lists visible application windows. Re
 
 Windows panel content accepts clicks and drags on exposed parts of the window. Clicking a window gives it focus for typing, shortcuts, and scrolling. Windows foreground focus can change outside VR. A covered point refuses pointer input, and text and shortcuts require the target window to hold foreground focus.
 
+On SteamVR, eligible windows and flat title bars use native overlays by default. The wrist menu is flat on SteamVR so its content can use the same compositor. The panels setting `rendering = 'plane'` draws app windows and their title bars in the scene.
+
 The Monitors group lists attached Windows displays. Select a display to share it, then select it again or close its panel to stop sharing. Lunette starts each session with display sharing off. A live display mirror takes clicks, drags, and wheel input on its display. Click an app in the mirror to direct typing and shortcuts to it while it has Windows foreground focus. Pausing the mirror also pauses its input.
 
 For testing from the command line, `lunette.exe --list-windows` lists available titles and `lunette.exe --window-title "Exact Window Title"` starts capture of one matching window. The title must identify one window.

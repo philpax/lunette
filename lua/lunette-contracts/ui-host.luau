@@ -413,6 +413,8 @@ export type PanelOptions = {
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
+  -- Offers a flat panel to SteamVR's compositor when the callback returns true. The scene draws it otherwise.
+  read nativeLayer: (() -> boolean)?,
   -- Bends the panel as a cylinder of radius 1 / |curve| metres: towards the viewer when positive, and away when negative,
   -- as a band wraps a wrist. Zero is flat. The arc wraps at most half a turn either side of the centre line, and a
   -- tighter curve is drawn and hit at that limit.
