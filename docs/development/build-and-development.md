@@ -22,6 +22,8 @@ The executable looks for `lua` beside it and loads `%LOCALAPPDATA%\Lunette\confi
 
 To assemble a portable Windows x64 ZIP, build `lunette.exe`, `lunctl.exe`, and `lunette-generate-definitions.exe` in the same target profile. Run [the PowerShell packaging script](../../etc/windows/package.ps1) with PowerShell 7. `-BinaryDirectory` names the profile directory, `-LovrDirectory` names the corresponding CMake output with the staged DLLs and OpenVR actions, and `-LlvmMingwDirectory` names the toolchain root. `-OutputZip` selects the destination. The ZIP includes the shipped Lua runtime and configuration. The script prints its SHA-256. Extract under the current user's LocalAppData before testing OpenVR.
 
+Windows CI builds the x64 host, runs the Windows capture and Lua tests, and attaches the portable ZIP to the workflow run after checking the extracted executable and configuration. VR compositor and interactive capture tests require a desktop and headset session.
+
 Set `LOVR_OPENVR_INPUT_TRACE=1` for a test launch to record the active controller types, available pose and input actions, observed trigger presses and thumbstick travel, and missing head or eye frames. Leave SteamVR's dashboard closed while exercising Lunette input. Virtual Desktop's tracked-hand profile binds index pinch to trigger and hand grip to grab. Test thumbstick scrolling with a physical controller.
 
 ## Nix
