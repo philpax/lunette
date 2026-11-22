@@ -102,7 +102,6 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
                 "lua/lunette-plugins/graphics/curved-surface.luau",
                 "lua/lunette-plugins/graphics/rounded-geometry.luau",
                 "lua/lunette-plugins/graphics/rounded-drawing.luau",
-                "lua/lunette-plugins/graphics/steamvr-quad.luau",
                 "lua/lunette-plugins/registration/listeners.luau",
                 "lua/lunette-plugins/registration/registry.luau",
                 "lua/lunette-plugins/lifecycle/cleanup.luau",

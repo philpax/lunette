@@ -25,13 +25,6 @@ local config = require '../config'
 
 export type Settings = config.Settings
 
-local function prefersLayer(settings: Settings): boolean
-  local headset = lovr.headset
-  return settings.rendering == 'layer'
-    or (settings.rendering == 'auto' and headset ~= nil and headset.getDriver ~= nil
-      and headset.getDriver() == 'SteamVR')
-end
-
 export type Host = {
   read active: () -> boolean,
   -- Raises unless the owner is still a live owner of this activation.
@@ -161,11 +154,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     end,
     setPose = function(_self: vocabulary.Surface, pose: Mat4)
       created.pose:set(pose)
-      panel.updateLayerPose(created)
     end,
     setSize = function(_self: vocabulary.Surface, width: number?, height: number?)
       panel.resize(created, width, height)
-      panel.updateLayerPose(created)
     end,
     raycast = function(
       _self: vocabulary.Surface,
@@ -567,7 +558,7 @@ end
 -- A hidden panel holds none, and neither does a window showing popups or subsurfaces: a layer is composited
 -- over the scene, where they are drawn, and would cover them.
 function panel.claim(target: State)
-  if target.dead or target.hidden or target.source.dead or not prefersLayer(target.host.settings) then
+  if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
     return
   end
   -- The layer holds an untilted positive curve, and a flat window whatever its axis. A negative or tilted curve,
@@ -631,7 +622,7 @@ function panel.update(target: State)
     return
   end
   panel.claim(target)
-  if target.kind ~= 'window' or not prefersLayer(target.host.settings) then
+  if target.kind ~= 'window' or target.host.settings.rendering ~= 'layer' then
     return
   end
   -- A flat window is driven with a flat layer whatever its axis; a curved one only when it is untilted.
@@ -641,24 +632,12 @@ function panel.update(target: State)
   local textureWidth, textureHeight = panel.textureSize(target)
   if textureWidth and textureHeight then
     layer.drive(target, cropViewport(target, textureWidth, textureHeight), function(held: Layer): ()
-      panel.placeLayer(target, held)
+      held:setPosition(target.pose:getPosition())
+      held:setOrientation(target.pose:getOrientation())
+      held:setDimensions(target.width, target.height)
+      -- One shared clamp serves the layer, the hit test, and the scene mesh.
+      held:setCurve(curved.curvature(target.width, target.height, target.curve, target.curveAxis))
     end)
-  end
-end
-
-function panel.placeLayer(target: State, held: Layer): ()
-  held:setPosition(target.pose:getPosition())
-  held:setOrientation(target.pose:getOrientation())
-  held:setDimensions(target.width, target.height)
-  -- One shared clamp serves the layer, the hit test, and the scene mesh.
-  held:setCurve(curved.curvature(target.width, target.height, target.curve, target.curveAxis))
-end
-
--- Grabs move the window after the scene update. Its layer and its attached controls use that same pose.
-function panel.updateLayerPose(target: State): ()
-  local held = target.granted and target.claim and target.claim.layer
-  if held then
-    panel.placeLayer(target, held)
   end
 end
 

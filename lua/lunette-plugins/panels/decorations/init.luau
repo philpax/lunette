@@ -95,9 +95,6 @@ return plugin.consumer<<Config, Settings>> {
             presentation = 'attach',
             target = surface,
             height = height,
-            nativeLayer = function(): boolean
-              return target.kind == 'window' and target.granted
-            end,
           })
           -- The outline joins the titlebar where the panel service can draw it, around a flat panel.
           local attachment = if target.attachFrame

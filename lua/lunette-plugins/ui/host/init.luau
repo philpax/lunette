@@ -29,7 +29,6 @@ local outlets = require '@self/private/outlets'
 local placements = require '@self/private/placements'
 local pack = require '@self/private/rendering/pack'
 local renderer = require '@self/private/rendering/renderer'
-local nativeLayers = require '@self/private/rendering/native-layers'
 local poke = require '@self/private/poke'
 local listeners = require '@lunette-plugins/registration/listeners'
 
@@ -65,7 +64,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local propertiesChanged = listeners.new<<(uiHost.Panel) -> ()>>(context)
   local resources: renderer.Resources? = nil
   local releaseResources: (() -> ())? = nil
-  local layers: nativeLayers.Cache = {}
 
   local env: records.Environment
   local provider: panels.Provider
@@ -255,7 +253,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       panelAdded:clear()
       propertiesChanged:clear()
-      nativeLayers.clear(layers)
       if releaseResources then
         releaseResources()
         releaseResources, resources = nil, nil
@@ -350,10 +347,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   frameService:onDraw(context, {
     phase = 'scene',
     order = 50,
-    run = function(pass: Pass): { Pass }?
+    run = function(pass: Pass): ()
       if #live == 0 then
-        nativeLayers.clear(layers)
-        return nil
+        return
       end
       if not resources then
         -- A glyph the atlas cannot generate draws nothing and is reported once.
@@ -365,7 +361,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       local held = assert(resources)
       renderer.beginFrame(held)
-      local nativeFrame = nativeLayers.begin()
       local drawn: { records.Panel } = {}
       for _, entry in live do
         drawn[#drawn + 1] = entry.record
@@ -384,30 +379,19 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
                 pack.marker(packed, marker.x, marker.y, marker.surface, marker.depth, current)
               end
             end
-            local overlayPass: Pass?, layer: Layer?
-            if nativeFrame and #packed.volumes == 0 then
-              local activeLayers: nativeLayers.Frame = nativeFrame
-              protected.call(`ui: panel '{record.name}' layer`, function(): ()
-                overlayPass, layer = nativeLayers.prepare(layers, activeLayers, record)
-              end)
-            end
             renderer.draw(
               held,
-              overlayPass or pass,
+              pass,
               record,
               assert(entry.packed),
               current,
               presentation.blocked(record, drawn),
               protected.call
             )
-            if nativeFrame and overlayPass and layer then
-              nativeLayers.append(nativeFrame, record, overlayPass, layer)
-            end
           end)
         end
       end
       renderer.endFrame(held)
-      return nativeLayers.finish(layers, nativeFrame)
     end,
   })
 

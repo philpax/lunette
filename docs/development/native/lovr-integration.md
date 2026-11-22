@@ -90,9 +90,7 @@ OpenVR uses native panel overlays and two projection-eye overlays, not scene-com
 
 Foveation stores each eye's fragment density map in the corresponding layer of one array texture. The maps are rebuilt every frame around the gaze that `GetEyeTrackedFoveationCenter` reports, or around the optical axis when there is none. The Frame reports gaze with Y pointing down. `lovr.headset.setFoveationOverlay` tints each eye by its density for diagnosis, and `lovr.headset.getFrameTiming` reports the backend's pacing alongside SteamVR's compositor timing.
 
-SteamVR composites overlays asynchronously, and each overlay call is a synchronous request to its compositor process. The backend sets only overlay properties that change and keeps visible overlays visible through successful updates. A failed update hides the overlay.
-
-The desktop offers eligible windows and their flat title bars as native overlays on SteamVR. It also uses native overlays for the flat wrist menu. SteamVR positions these overlays directly, so the controls use the same presentation timing as the windows. The scene draws curved or unsupported panels and panels without an available overlay.
+SteamVR composites overlays asynchronously, and each overlay call is a synchronous request to its compositor process. The backend therefore sets only the overlay properties that changed and never hides a visible overlay to update it, since a hidden overlay drops out of whichever frame SteamVR composites in the meantime. A failed update hides the overlay rather than show a partial configuration.
 
 `WaitFrameSync` returns as the compositor begins a frame that is already bound for the next vsync, so content submitted afterwards reaches a later compositor frame. Poses are predicted for the vsync of the first compositor frame that begins after the previous frame's measured work, at most three frames ahead, and two frames never target the same vsync.
 

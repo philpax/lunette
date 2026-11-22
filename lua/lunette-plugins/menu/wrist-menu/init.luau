@@ -70,9 +70,6 @@ return plugin.consumer<<Config, Settings>> {
       size = 'content',
       width = settings.size,
       height = settings.size * 2,
-      nativeLayer = function(): boolean
-        return true
-      end,
       grabbable = false,
       essential = true,
       curve = WRAP_CURVE,
@@ -84,9 +81,6 @@ return plugin.consumer<<Config, Settings>> {
       size = 'content',
       width = expanded.width,
       height = expanded.height,
-      nativeLayer = function(): boolean
-        return true
-      end,
       grabbable = true,
       essential = true,
       visible = false,
@@ -95,7 +89,6 @@ return plugin.consumer<<Config, Settings>> {
     list:setPlacementKey(nil)
     local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
     local tracked = false
-    local flat = false
     -- Set while the open list is torn off the wrist.
     local detached = false
     local gauntletShown, listShown = false, false
@@ -207,12 +200,6 @@ return plugin.consumer<<Config, Settings>> {
       run = function(_dt: number): ()
         if not live() then
           return
-        end
-        local headset = lovr.headset
-        local steamVR = headset ~= nil and headset.getDriver ~= nil and headset.getDriver() == 'SteamVR'
-        if flat ~= steamVR then
-          flat = steamVR
-          gauntlet:setCurve(if flat then 0 else WRAP_CURVE, WRAP_AXIS, false)
         end
         remember()
         local now = os.date(TIME_FORMAT)

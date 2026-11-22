@@ -24,7 +24,7 @@ type Child = {
 }
 type Layer = {
   read setViewport: (Layer, number, number, number, number) -> (),
-  read setPosition: (Layer, number, number, number) -> (),
+  read setPosition: () -> (),
   read setOrientation: () -> (),
   read setDimensions: () -> (),
   read setCurve: (Layer, number) -> (),
@@ -54,17 +54,13 @@ local function start(config: Config?): (Native, testing.Session, contract.Servic
   return native, session, observed.service, observed.context, window
 end
 
-local function grantLayer(panel: Drawable, viewports: { { number } }, curves: { number }?, positions: { { number } }?)
+local function grantLayer(panel: Drawable, viewports: { { number } }, curves: { number }?)
   panel.claim.granted = true
   panel.claim.layer = {
     setViewport = function(_: Layer, x: number, y: number, width: number, height: number)
       viewports[#viewports + 1] = { x, y, width, height }
     end,
-    setPosition = function(_: Layer, x: number, y: number, z: number)
-      if positions then
-        positions[#positions + 1] = { x, y, z }
-      end
-    end,
+    setPosition = function() end,
     setOrientation = function() end,
     setDimensions = function() end,
     setCurve = function(_: Layer, curve: number)
@@ -85,7 +81,7 @@ local function drawn(native: Native, panel: Drawable): { [string]: number }
   return counts
 end
 
-test('the simulator draws in the scene by default, and skips it only while a requested layer is granted', function()
+test('a window draws in the scene by default, and skips it only while an opted-in layer is granted', function()
   -- A square window draws a plain quad.
   local native, session, panels, owner, window = start { style = { windowRadius = 0 } }
   local plain = panels:fromWindow(owner, window)
@@ -104,23 +100,6 @@ test('the simulator draws in the scene by default, and skips it only while a req
   layered:update()
   local refused = drawn(native, layered)
   expect.truthy(refused.plane or refused.draw, 'a refused layer falls back to the scene')
-  session:close()
-end)
-
-test('moving a window updates its granted layer before the next frame', function()
-  local _, session, panels, owner, window = start { rendering = 'layer' }
-  local panel = panels:fromWindow(owner, window)
-  local positions: { { number } } = {}
-  grantLayer(panel, {}, nil, positions)
-  panel:update()
-  table.clear(positions)
-
-  panel:setPose(lovr.math.newMat4():translate(1, 2, -3))
-
-  expect.equal(#positions, 1, 'the window moves without another scene update')
-  expect.equal(positions[1][1], 1, 'the layer follows the new x position')
-  expect.equal(positions[1][2], 2, 'the layer follows the new y position')
-  expect.equal(positions[1][3], -3, 'the layer follows the new z position')
   session:close()
 end)
 
