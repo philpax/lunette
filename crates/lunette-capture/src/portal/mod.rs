@@ -34,12 +34,11 @@ pub mod wlx;
 use std::{error::Error, fmt, num::NonZeroU32};
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
+pub use wlx::WlxPortal;
 
 use crate::monitor::geometry::LogicalPosition;
 pub use crate::portal::correlation::{Correlation, StreamMatch, Unmatched, correlate};
-
-#[cfg(target_os = "linux")]
-pub use wlx::WlxPortal;
 
 /// The portal, as lunette uses it.
 ///

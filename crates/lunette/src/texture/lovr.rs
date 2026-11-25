@@ -19,13 +19,12 @@ use lunette_lovr::raw::{
     lovrTextureImportAcquire, lovrTextureImportRelease, lovrTextureSetPixels,
 };
 
+#[cfg(target_os = "linux")]
+use crate::import::formats::mapping_for;
 use crate::texture::{
     BarrierPolicy, CopyableTexture, TextureDescription,
     barrier::{acquire_arguments, release_arguments},
 };
-
-#[cfg(target_os = "linux")]
-use crate::import::formats::mapping_for;
 
 /// An owned reference to a LÖVR texture.
 ///

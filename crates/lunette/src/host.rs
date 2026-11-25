@@ -13,7 +13,6 @@ use lunette_capture::{
     monitor::MonitorKey,
 };
 use lunette_compositor::protocol::{KeyModifier, Keycode, ModifierState, PointerButton};
-
 #[cfg(target_os = "linux")]
 use {
     lunette_capture::{

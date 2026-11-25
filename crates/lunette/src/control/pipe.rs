@@ -527,9 +527,10 @@ fn io_error(error: Error) -> io::Error {
     reason = "the test reports failures through expectations"
 )]
 mod tests {
+    use std::sync::atomic::AtomicU32;
+
     use super::*;
     use crate::control::{CHUNKS_PER_FRAME, answer, wire::Reply};
-    use std::sync::atomic::AtomicU32;
 
     fn endpoint() -> (Identity, PathBuf) {
         static NEXT: AtomicU32 = AtomicU32::new(0);

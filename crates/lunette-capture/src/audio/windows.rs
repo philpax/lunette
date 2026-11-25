@@ -40,19 +40,18 @@ use ::windows::{
     },
     core::{Error, Result as WindowsResult},
 };
+pub use application::WindowsAudioTargets;
 use lunette_compositor::protocol::{
     AudioAttributionReply, AudioAttributionRequest, PipeWireGeneration, ProcessId,
     ProcessObservation,
 };
-
-use crate::windows::WindowsProcess;
-pub use application::WindowsAudioTargets;
 
 use super::{
     AudioBackend, AudioBackendEvent, AudioError, AudioFormat, AudioProcessCandidate, AudioProducer,
     CaptureId, CaptureState, PacketResult, PcmPacket, ProcessCaptureStatus, Source,
     UnavailableReason, audio_transport, transport::TRANSPORT_FRAMES,
 };
+use crate::windows::WindowsProcess;
 
 const FORMAT: AudioFormat = AudioFormat::STEREO_F32_48K;
 const FRAME_BYTES: usize = FORMAT.channels() as usize * size_of::<f32>();

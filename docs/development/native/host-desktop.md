@@ -54,4 +54,4 @@ The Windows backend in `lunette-capture` lists top-level application windows and
 
 Windows shares one foreground window and one cursor. Input goes through the desktop and can be refused by Windows. Text entry requires the selected window to be foreground. A click requires the selected window to own the hit point.
 
-Run `cargo test -p lunette-capture --lib -- --ignored` from an interactive Windows desktop to verify capture and resize with the test window. The backend is currently available at the Rust capture boundary. The Lunette session entry point still uses the Linux host implementation.
+Run `cargo test -p lunette-capture --lib --features test-windows-capture` from an interactive Windows desktop to verify capture and resize with the test window.

@@ -5,7 +5,7 @@ mod desktop;
 mod input;
 mod process;
 mod stream;
-#[cfg(test)]
+#[cfg(all(test, feature = "test-windows-capture"))]
 mod tests;
 
 pub use self::{

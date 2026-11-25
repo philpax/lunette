@@ -16,10 +16,9 @@ mod tests;
 
 use std::mem;
 
-use super::{MirrorOutcome, SelectionOutcome, SelectionState};
-
 use tracing::{debug, info, warn};
 
+use super::{MirrorOutcome, SelectionOutcome, SelectionState};
 pub use crate::mirror::{
     nodes::{NoNodeWatch, NodeWatch, NodeWatchError, PipewireNodeWatch},
     source::{DirectOpen, MonitorStream, MonitorStreams, NoStreams, PipewireStreams},

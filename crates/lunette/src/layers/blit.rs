@@ -241,8 +241,7 @@ mod tests {
     use crate::{
         layers::{LayerBudget, LayerSize, Priority, SessionId, SessionPresence},
         scene::SceneRendering,
-        texture::Alpha,
-        texture::{CopyableTexture, FrameGeneration, TextureDescription},
+        texture::{Alpha, CopyableTexture, FrameGeneration, TextureDescription},
     };
 
     /// A texture that is a number, so the decision can be exercised without a

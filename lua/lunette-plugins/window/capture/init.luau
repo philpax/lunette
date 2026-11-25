@@ -50,7 +50,9 @@ return plugin.consumer<<Empty, Empty>> {
         titles[window.title] = (titles[window.title] or 0) + 1
       end
       for _, window in windows do
-        local label = if titles[window.title] > 1 then window.title .. ' (' .. tostring(window.id) .. ')' else window.title
+        local label = if titles[window.title] > 1
+          then window.title .. ' (' .. tostring(window.id) .. ')'
+          else window.title
         setRow(window.id, label, window.captured)
       end
       if #windows == 0 then

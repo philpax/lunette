@@ -45,6 +45,15 @@ pub mod serialise;
 pub mod socket;
 pub mod wire;
 
+#[cfg(target_os = "linux")]
+use std::{
+    io,
+    net::Shutdown,
+    os::unix::net::UnixStream,
+    path::{Path, PathBuf},
+    sync::Arc,
+    thread::{self, JoinHandle},
+};
 use std::{
     io::Write,
     sync::{
@@ -55,22 +64,12 @@ use std::{
 };
 
 #[cfg(target_os = "linux")]
-use std::{
-    io,
-    net::Shutdown,
-    os::unix::net::UnixStream,
-    path::{Path, PathBuf},
-    sync::Arc,
-    thread::{self, JoinHandle},
-};
-
+pub use socket::{BindError, ControlSocket};
 #[cfg(target_os = "linux")]
 use tracing::info;
 use tracing::{debug, warn};
 
 pub use crate::control::{eval::answer, wire::Reply};
-#[cfg(target_os = "linux")]
-pub use socket::{BindError, ControlSocket};
 
 /// How many chunks may be waiting for the session at once.
 const QUEUE_DEPTH: usize = 4;
@@ -552,7 +551,7 @@ mod tests {
             queued.push(receiver);
         }
 
-        assert_eq!(submit(&sender, "return 1".to_owned()), Reply::Busy);
+        assert_eq!(submit(&sender, "return 1".to_owned(), None), Reply::Busy);
     }
 
     /// A session that stopped drawing must not leave a client waiting, and the
@@ -562,7 +561,10 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(QUEUE_DEPTH);
         drop(receiver);
 
-        assert_eq!(submit(&sender, "return 1".to_owned()), Reply::Unanswered);
+        assert_eq!(
+            submit(&sender, "return 1".to_owned(), None),
+            Reply::Unanswered
+        );
     }
 
     #[test]

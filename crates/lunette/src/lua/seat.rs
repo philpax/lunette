@@ -16,7 +16,6 @@ use lunette_compositor::{
     },
 };
 use mlua::{Lua, Table, UserDataRef};
-
 #[cfg(target_os = "linux")]
 use {
     lunette_compositor::{

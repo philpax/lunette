@@ -8,14 +8,12 @@ use std::fmt;
 
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
-pub use windows::WindowsMirrors;
-
 use lunette_capture::{
     mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
     monitor::{LogicalGeometry, MonitorKey, PixelExtent},
 };
-
+#[cfg(windows)]
+pub use windows::WindowsMirrors;
 #[cfg(target_os = "linux")]
 use {
     lunette_capture::{

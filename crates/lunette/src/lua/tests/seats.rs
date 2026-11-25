@@ -14,9 +14,6 @@ use std::sync::Arc;
 
 use lunette_compositor::protocol::{Command, ModifierState, SeatSnapshot};
 use pretty_assertions::assert_eq;
-
-use super::*;
-
 #[cfg(target_os = "linux")]
 use {
     crate::lua::tests::monitors::HostEvent,
@@ -25,6 +22,8 @@ use {
         protocol::{KeymapConfig, KeymapDefaults},
     },
 };
+
+use super::*;
 
 /// `KEY_A`, in the evdev numbering the Lua surface takes.
 const KEY_A: u32 = 30;

@@ -2,6 +2,8 @@
 //!
 //! See [the Lua API](../../../docs/development/native/lua-api.md#lunctl).
 
+#[cfg(target_os = "linux")]
+use std::os::unix::net::UnixStream;
 use std::{
     env,
     ffi::OsString,
@@ -11,20 +13,16 @@ use std::{
     process::ExitCode,
 };
 
+#[cfg(windows)]
+use lunette::control::pipe::{self, PipeStream};
 #[cfg(target_os = "linux")]
-use std::os::unix::net::UnixStream;
-
+use lunette::control::socket::{DIRECTORY_NAME, SOCKET_NAME};
 use lunette::control::{
     identifier::is_identifier,
     wire::{
         Handle, Key, MAX_FRAME, Reply, TableValue, Value, WireError, read_reply, write_request,
     },
 };
-
-#[cfg(windows)]
-use lunette::control::pipe::{self, PipeStream};
-#[cfg(target_os = "linux")]
-use lunette::control::socket::{DIRECTORY_NAME, SOCKET_NAME};
 
 pub(super) fn run() -> ExitCode {
     let arguments: Vec<OsString> = env::args_os().skip(1).collect();

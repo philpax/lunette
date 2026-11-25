@@ -16,6 +16,9 @@ mod ledger;
 mod lovr;
 mod monitor;
 
+#[cfg(target_os = "linux")]
+pub use ledger::destroy_due_images;
+
 pub use self::{
     barrier::{BarrierPolicy, ForeignLayout, QueueFamilyMode},
     generation::{FrameGeneration, SurfaceCommit},
@@ -26,9 +29,6 @@ pub use self::{
     lovr::{LovrTexture, TextureError},
     monitor::MonitorTextures,
 };
-
-#[cfg(target_os = "linux")]
-pub use ledger::destroy_due_images;
 
 /// Whether a format's fourth component carries alpha or padding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

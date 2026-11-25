@@ -25,7 +25,6 @@ use ::windows::{
     },
     core::{Error, Result},
 };
-
 use lunette_compositor::protocol::{KeyModifier, Keycode, ModifierState, ScrollAxis};
 use tracing::debug;
 

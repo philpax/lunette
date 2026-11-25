@@ -20,7 +20,6 @@ use ::windows::{
     },
     core::w,
 };
-
 use lunette_compositor::protocol::{PixelBuffer, PixelSize};
 
 use crate::windows::{
@@ -103,7 +102,6 @@ unsafe extern "system" fn paint(
 }
 
 #[test]
-#[ignore = "requires an interactive Windows desktop with Windows Graphics Capture"]
 #[expect(
     clippy::expect_used,
     reason = "a failed native fixture prerequisite fails this test"

@@ -82,7 +82,10 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    if arguments.iter().any(|argument| argument == "--portable-config-aliases") {
+    if arguments
+        .iter()
+        .any(|argument| argument == "--portable-config-aliases")
+    {
         print!("{}", lunette::aliases::installed_luaurc("../lua"));
         return ExitCode::SUCCESS;
     }

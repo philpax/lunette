@@ -282,6 +282,22 @@ impl fmt::Display for Pid {
     }
 }
 
+/// Provides process observations without owning or waiting for processes.
+/// Environments remain raw bytes because they need not be UTF-8.
+pub trait ProcessInspector: Send {
+    /// Returns `None` when `key` is absent and preserves the value's bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the environment cannot be read. `NotFound`
+    /// means the process disappeared; `PermissionDenied` means access is denied.
+    fn read_environment(&self, pid: Pid, key: &str) -> std::io::Result<Option<Vec<u8>>>;
+
+    /// Observes identity, parent PID, and liveness together. Missing and terminal
+    /// records are `Ended`; denied reads are `Unavailable`, never process death.
+    fn observe(&self, pid: Pid) -> ProcessObservation;
+}
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
@@ -364,20 +380,4 @@ mod tests {
         assert_eq!(argv.program(), OsStr::new("foot"));
         assert!(argv.arguments().is_empty());
     }
-}
-
-/// Provides process observations without owning or waiting for processes.
-/// Environments remain raw bytes because they need not be UTF-8.
-pub trait ProcessInspector: Send {
-    /// Returns `None` when `key` is absent and preserves the value's bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an I/O error when the environment cannot be read. `NotFound`
-    /// means the process disappeared; `PermissionDenied` means access is denied.
-    fn read_environment(&self, pid: Pid, key: &str) -> std::io::Result<Option<Vec<u8>>>;
-
-    /// Observes identity, parent PID, and liveness together. Missing and terminal
-    /// records are `Ended`; denied reads are `Unavailable`, never process death.
-    fn observe(&self, pid: Pid) -> ProcessObservation;
 }

@@ -71,6 +71,8 @@ windows = { version = "=0.62.2", features = [
 [features]
 # Exposes `CapturedFrame::from_parts` to other crates' tests.
 test-fakes = []
+# Enables the live Windows Graphics Capture fixture on an interactive desktop.
+test-windows-capture = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true

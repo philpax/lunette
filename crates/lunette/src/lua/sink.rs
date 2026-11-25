@@ -59,7 +59,6 @@ use mlua::UserDataRef;
 use crate::host::{host_button, host_key, host_modifiers};
 #[cfg(windows)]
 use crate::lua::monitor_input::MonitorInput;
-
 use crate::{
     control::wire::HandleKind,
     lua::{

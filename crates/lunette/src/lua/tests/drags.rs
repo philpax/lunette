@@ -13,8 +13,7 @@ use crate::{
         wire::{Handle, HandleId, HandleKind, Reply, Value},
     },
     lua::tests::seats::{seat, seated},
-    texture::Alpha,
-    texture::TextureDescription,
+    texture::{Alpha, TextureDescription},
 };
 
 const ICON_SURFACE: u64 = 7;

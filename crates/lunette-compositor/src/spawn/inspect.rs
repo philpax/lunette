@@ -5,7 +5,6 @@
 use std::{fs, io};
 
 pub use crate::protocol::ProcessInspector;
-
 use crate::{
     protocol::{Pid, ProcessInstance, ProcessObservation, ProcessObservationFailure},
     wayvr::process::get_process_env_value,

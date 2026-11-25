@@ -8,8 +8,7 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     lua::tests::{FakeTexture, TestSession, lua, run, session, snapshot, surface_id, window},
-    texture::Alpha,
-    texture::TextureDescription,
+    texture::{Alpha, TextureDescription},
 };
 
 const MENU: u64 = 20;

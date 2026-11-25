@@ -24,25 +24,27 @@ use smallvec::SmallVec;
 #[cfg(target_os = "linux")]
 use smithay::backend::allocator::{Fourcc, Modifier};
 
-pub use crate::pixels::{PixelBuffer, PixelFormat};
-pub use crate::protocol::{
-    input::{
-        InputDomain, KeyModifier, Keycode, Keysym, PointerButton, SURFACE_UNITS_PER_DETENT,
-        ScrollAxis, ScrollDelta,
-    },
-    keymap::{
-        KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, LayoutName, RepeatDelay,
-        RepeatPolicy, RepeatRate,
-    },
-    process::{
-        Argv, AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId,
-        AudioNodeSerial, Pid, PipeWireGeneration, ProcessInspector, ProcessInstance,
-        ProcessObservation, ProcessObservationFailure, ProcessOutcome, ProcessSignal, SignalNumber,
-        SpawnRequest, Stream,
-    },
-};
 #[cfg(target_os = "linux")]
 use crate::surface::BufferImporter;
+pub use crate::{
+    pixels::{PixelBuffer, PixelFormat},
+    protocol::{
+        input::{
+            InputDomain, KeyModifier, Keycode, Keysym, PointerButton, SURFACE_UNITS_PER_DETENT,
+            ScrollAxis, ScrollDelta,
+        },
+        keymap::{
+            KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, LayoutName, RepeatDelay,
+            RepeatPolicy, RepeatRate,
+        },
+        process::{
+            Argv, AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId,
+            AudioNodeSerial, Pid, PipeWireGeneration, ProcessInspector, ProcessInstance,
+            ProcessObservation, ProcessObservationFailure, ProcessOutcome, ProcessSignal,
+            SignalNumber, SpawnRequest, Stream,
+        },
+    },
+};
 
 /// An asynchronous request from the main thread to the compositor thread.
 ///

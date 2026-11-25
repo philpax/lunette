@@ -12,9 +12,6 @@ use lunette_compositor::protocol::{
 };
 use mlua::Value;
 use pretty_assertions::assert_eq;
-
-use crate::lua::tests::{error, lua, run, session, snapshot, window};
-
 #[cfg(target_os = "linux")]
 use {
     crate::{
@@ -34,6 +31,8 @@ use {
     },
     std::rc::Rc,
 };
+
+use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn spawning_queues_a_request_under_a_distinct_identifier_it_returned() {

@@ -11,11 +11,6 @@ use std::{
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86"))]
 use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
-use crate::{
-    boot::{self, SessionPaths},
-    check,
-    cli::{self, Cli},
-};
 use clap::Parser;
 use lunette::{
     audio::{AudioRegistry, NativeAudioRegistry, NoAudioRegistry},
@@ -51,6 +46,12 @@ use lunette_compositor::{
 use lunette_lovr::raw;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
+
+use crate::{
+    boot::{self, SessionPaths},
+    check,
+    cli::{self, Cli},
+};
 
 pub(super) fn run() -> ExitCode {
     // Delay reporting until the subscriber can emit the parse error.

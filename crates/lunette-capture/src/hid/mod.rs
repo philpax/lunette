@@ -29,6 +29,9 @@ pub use crate::hid::{
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
+pub use linux::*;
+
+#[cfg(target_os = "linux")]
 pub use crate::hid::{
     dummy::DummyProvider,
     selection::{
@@ -37,6 +40,3 @@ pub use crate::hid::{
     uinput::UinputProvider,
     wl_virtual::{WlVirtualConfig, WlVirtualProvider},
 };
-
-#[cfg(target_os = "linux")]
-pub use linux::*;

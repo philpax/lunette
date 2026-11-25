@@ -15,8 +15,7 @@ use mlua::Value;
 use crate::{
     control::wire::HandleKind,
     lua::{LuaTexture, Session, declarations::handle, values::MaybeTexture, window::answer},
-    texture::Alpha,
-    texture::TextureRef,
+    texture::{Alpha, TextureRef},
 };
 
 /// A drag in progress, as Lua holds it.

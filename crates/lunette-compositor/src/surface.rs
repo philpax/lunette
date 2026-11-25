@@ -33,13 +33,12 @@ use smithay::{
     },
 };
 
+pub use crate::pixels::{PixelBuffer, PixelFormat as ShmFormat};
 use crate::{
     config::DEFAULT_OUTPUT,
     protocol::{ContentType, Event, ImportedImage, PixelSize, SourceCrop, SurfaceId},
     wayvr::{SurfaceBufWithImage, comp::Application},
 };
-
-pub use crate::pixels::{PixelBuffer, PixelFormat as ShmFormat};
 
 /// Maps compositor-thread surface objects to stable identifiers.
 ///

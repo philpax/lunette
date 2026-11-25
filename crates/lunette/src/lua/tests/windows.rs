@@ -10,8 +10,7 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     lua::tests::{FakeTexture, error, lua, run, session, snapshot, surface_id, window, window_id},
-    texture::Alpha,
-    texture::{TextureDescription, TextureRef},
+    texture::{Alpha, TextureDescription, TextureRef},
 };
 
 #[test]

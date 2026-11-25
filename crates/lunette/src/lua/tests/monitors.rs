@@ -23,8 +23,7 @@ use crate::{
     events::LuaEvent,
     host::HostSinks,
     mirrors::{MirrorRegistry, MonitorState},
-    texture::Alpha,
-    texture::TextureDescription,
+    texture::{Alpha, TextureDescription},
 };
 
 /// A registry over a fixed set of monitors, recording every request it receives.

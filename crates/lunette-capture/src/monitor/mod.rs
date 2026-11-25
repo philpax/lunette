@@ -6,11 +6,11 @@ pub mod name;
 pub mod outputs;
 pub mod roster;
 
+#[cfg(target_os = "linux")]
+pub use outputs::{HostOutputs, OutputError, OutputId, OutputWatcher};
+
 pub use self::{
     geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent, SurfaceTransform},
     name::{ConnectorKind, ConnectorName, Descriptor, KeyStrength, MonitorKey, MonitorName},
     roster::{Monitor, MonitorReport, Roster},
 };
-
-#[cfg(target_os = "linux")]
-pub use outputs::{HostOutputs, OutputError, OutputId, OutputWatcher};

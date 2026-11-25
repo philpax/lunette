@@ -46,7 +46,10 @@ arc.definition = plugin.consumer<<Config, Settings>>({
     local service: layouts.Service = context:require(layouts.capability)
     local head = settings.anchor == 'head'
       or (settings.anchor == 'auto' and lovr.system and lovr.system.getOS and lovr.system.getOS() == 'Windows')
-    service:register(context, { name = settings.name, apply = arc.layout(settings.tuning, if head then 'head' else 'origin') })
+    service:register(
+      context,
+      { name = settings.name, apply = arc.layout(settings.tuning, if head then 'head' else 'origin') }
+    )
   end,
 }).definition
 

@@ -6,10 +6,9 @@ use lunette_capture::audio::{
     AudioBlock, AudioError, AudioPublication, AudioReaderId, AudioService, CaptureState,
     ProcessCaptureStatus, Source, UnavailableReason,
 };
-use lunette_compositor::protocol::ProcessInspector;
 use lunette_compositor::protocol::{
-    AudioAttributionRequest, Event, ProcessId, ProcessInstance, ProcessObservation,
-    ProcessObservationFailure, ProcessSnapshot, Snapshot,
+    AudioAttributionRequest, Event, ProcessId, ProcessInspector, ProcessInstance,
+    ProcessObservation, ProcessObservationFailure, ProcessSnapshot, Snapshot,
 };
 
 use crate::audio::observer::{CandidateObserver, ObservationJob};
