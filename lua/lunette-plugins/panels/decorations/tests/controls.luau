@@ -421,6 +421,15 @@ end)
 
 test('dragging a window titlebar moves the window and drops it once', function()
   local env = boot()
+  local titlebar: uiHost.Panel? = nil
+  for _, entry in env.host:panels() do
+    if entry.options.name == WINDOW then
+      titlebar = entry.panel
+      break
+    end
+  end
+  local bar = assert(titlebar, 'the window has a titlebar')
+  local tx, ty, tz = bar:pose():getPosition()
   local released: { drops.Drop } = {}
   local observer = env.running.session:observe(drops.capability)
   observer.service:onDropped(observer.context, {
@@ -437,6 +446,11 @@ test('dragging a window titlebar moves the window and drops it once', function()
   env.running:step()
   env.running:pose('right', lovr.math.newMat4(origin):translate(0.3, 0.1, -0.1))
   env.running:step()
+  env.running:draw()
+  local bx, by, bz = bar:pose():getPosition()
+  expect.near(bx, tx + 0.3, 1e-5, 'the titlebar follows the window in x in the same draw')
+  expect.near(by, ty + 0.1, 1e-5, 'the titlebar follows the window in y in the same draw')
+  expect.near(bz, tz - 0.1, 1e-5, 'the titlebar follows the window in z in the same draw')
   env.running:button('right', 'trigger', false)
   env.running:step()
   local x, y, z = env.panel.pose:getPosition()

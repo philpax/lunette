@@ -369,6 +369,10 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         local record = entry.record
         if record.visible and not record.suppressed and record.root and record.width > 0 and record.height > 0 then
           protected.call(`ui: panel '{record.name}' draw`, function(): ()
+            -- A grab can move the target during pointing, after its attachment was placed for hit testing.
+            if record.presentation == 'attach' and not presentation.attach(record, current) then
+              return
+            end
             layout.place(record)
             local packed = pack.run(record, env, function(name: string): { uiHost.Visual }
               return registry.visuals(kinds, name)
