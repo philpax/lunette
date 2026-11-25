@@ -1,4 +1,4 @@
-//! Linux-only: the process handle `lunette.spawn` returns.
+//! Logical process handles for launched and adopted applications.
 //!
 //! The handle exists before the process does. `lunette.spawn` mints the
 //! identifier, queues a spawn request, and returns in the same call.

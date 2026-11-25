@@ -28,17 +28,17 @@
 pub mod correlation;
 #[cfg(test)]
 pub mod fake;
+#[cfg(target_os = "linux")]
 pub mod wlx;
 
 use std::{error::Error, fmt, num::NonZeroU32};
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
+pub use wlx::WlxPortal;
 
 use crate::monitor::geometry::LogicalPosition;
-pub use crate::portal::{
-    correlation::{Correlation, StreamMatch, Unmatched, correlate},
-    wlx::WlxPortal,
-};
+pub use crate::portal::correlation::{Correlation, StreamMatch, Unmatched, correlate};
 
 /// The portal, as lunette uses it.
 ///
@@ -267,6 +267,7 @@ pub struct RequestId(u64);
 
 impl RequestId {
     #[must_use]
+    #[cfg(any(test, target_os = "linux"))]
     pub(crate) const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }

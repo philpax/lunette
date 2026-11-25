@@ -111,7 +111,7 @@ pub fn test_file(relative: &Path, source: Source) -> Result<TestFile, DiscoveryE
     let name = stem
         .to_str()
         .ok_or_else(|| DiscoveryError::Unnamed(relative.to_path_buf()))?
-        .to_owned();
+        .replace(std::path::MAIN_SEPARATOR, "/");
     let (name, module) = match source {
         Source::Library => {
             let (directory, rest) = name

@@ -1,4 +1,4 @@
-//! Linux-only: adds rpath entries for LÖVR's shared libraries to the executable.
+//! Provides the Linux runtime search paths for LÖVR's shared libraries.
 //!
 //! `lunette-lovr` finds `liblovr.so` and the staged `bin/` tree beside it.
 //! The `cargo::rustc-link-arg` directives it emits apply to its own package's targets.
@@ -13,6 +13,10 @@ use std::env;
 const LOVR_DIRECTORY_VARS: [&str; 2] = ["DEP_LOVR_LIBRARY_DIR", "DEP_LOVR_STAGED_DIR"];
 
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        // Windows loads LÖVR and its dependencies from the executable directory.
+        return;
+    }
     // Libraries never read the environment. A build script is not a library:
     // Cargo passes `DEP_LOVR_*` through no other channel.
     for name in LOVR_DIRECTORY_VARS {

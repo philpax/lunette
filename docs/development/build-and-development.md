@@ -14,6 +14,18 @@ Iterate in debug; use release for packaging or measurements. Bare Cargo commands
 
 LÖVR builds as `liblovr.so` with Luau and checker support. mlua resolves the Lua API from that library rather than linking another interpreter. The binary and library need separate rpaths for transitive shared dependencies. Static LÖVR would still need shared third-party libraries and would not eliminate packaging work. `crates/lunette-lovr/build.rs` owns CMake options, build-input watches, and bindgen setup.
 
+### Windows
+
+The Windows development build uses Rust's `x86_64-pc-windows-gnullvm` target, LLVM-MinGW, CMake, Ninja, and libclang. The executable needs the built LÖVR and MSDFgen DLLs, the staged LÖVR runtime dependencies, and the LLVM-MinGW runtime DLLs. For SteamVR, keep `lovr-openvr` beside the LÖVR DLL under a directory writable only by the installing user or administrators. LÖVR validates that location before it hands action manifests to SteamVR.
+
+The executable looks for `lua` beside it and loads `%LOCALAPPDATA%\Lunette\config` or the adjacent `config` directory. A source-tree run can set `LUNETTE_STDLIB_PATH` to the repository's `lua` directory and pass `--config-path etc/xdg/lunette`. For coexistence testing, set `t.headset.backend = 'openvr'` and `t.headset.overlay = true` in the test configuration, and use [the Windows window selector](../users/desktop-configuration.md#windows-monitors-and-workspaces).
+
+To assemble a portable Windows x64 ZIP, build `lunette.exe`, `lunctl.exe`, and `lunette-generate-definitions.exe` in the same target profile. Run [the PowerShell packaging script](../../etc/windows/package.ps1) with PowerShell 7. `-BinaryDirectory` names the profile directory, `-LovrDirectory` names the corresponding CMake output with the staged DLLs and OpenVR actions, and `-LlvmMingwDirectory` names the toolchain root. `-OutputZip` selects the destination. The ZIP includes the shipped Lua runtime and configuration. The script prints its SHA-256. Extract under the current user's LocalAppData before testing OpenVR.
+
+Windows CI builds the x64 host, runs the Windows capture and Lua tests, and attaches the portable ZIP to the workflow run after checking the extracted executable and configuration. VR compositor and interactive capture tests require a desktop and headset session.
+
+Set `LOVR_OPENVR_INPUT_TRACE=1` for a test launch to record the active controller types, available pose and input actions, observed trigger presses and thumbstick travel, and missing head or eye frames. Leave SteamVR's dashboard closed while exercising Lunette input. Virtual Desktop's tracked-hand profile binds index pinch to trigger and hand grip to grab. Test thumbstick scrolling with a physical controller.
+
 ## Nix
 
 The flake provides a development shell, not a package output. It prefetches JoltPhysics and supplies `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS`; outside the shell CMake may fetch it. Flake sources need `submodules=1` to include vendored trees. direnv preserves the caller's `SHELL`; `nix develop` changes it, and spawned terminals inherit that value.

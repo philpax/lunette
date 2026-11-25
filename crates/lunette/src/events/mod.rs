@@ -1,4 +1,4 @@
-//! Linux-only: delivers compositor lifecycle events to Lua callbacks.
+//! Delivers desktop lifecycle events to Lua callbacks.
 //!
 //! Each `lun*` event carries one table built at dispatch time, because LÖVR variants cannot hold mlua userdata.
 
@@ -253,7 +253,7 @@ events! {
             .map(|state| Monitor::new(Rc::clone(session), state)),
     }
 
-    /// A spawned process ends, or never starts.
+    /// A tracked process ends, or a launch fails.
     PROCESS_EXITED = lunprocessexited(_lua, session) as ProcessExitedEvent via onProcessExited
         from LuaEvent::ProcessExited { process, outcome } =>
     {

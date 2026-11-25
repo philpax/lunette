@@ -14,21 +14,21 @@
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, fmt, ops::Deref, sync::Arc};
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
+use std::{collections::HashMap, fmt, ops::Deref};
 
-use lunette_compositor::{
-    protocol::{ImageHandle, ImportedBuffer, PixelSize, SurfaceId},
-    surface::PixelBuffer,
+use lunette_compositor::protocol::{
+    ImageHandle, ImportedBuffer, PixelBuffer, PixelSize, SurfaceId,
 };
 use tracing::warn;
 
-use crate::{
-    import::{
-        GraphicsDevice, ImageArena,
-        formats::{Alpha, FormatMapping, mapping_for},
-    },
-    texture::{FrameGeneration, SurfaceCommit},
+#[cfg(target_os = "linux")]
+use crate::import::{
+    GraphicsDevice, ImageArena,
+    formats::{FormatMapping, mapping_for},
 };
+use crate::texture::{Alpha, FrameGeneration, SurfaceCommit};
 
 /// A reference to a surface's texture, valid for one frame.
 ///
@@ -177,6 +177,30 @@ impl<T> TextureLedger<T> {
             },
         );
         Released::default()
+    }
+
+    /// Writes a new frame into an existing texture with the same description.
+    /// A successful write refreshes stable copies and composition layers.
+    #[cfg(windows)]
+    pub(crate) fn update_pixels(
+        &mut self,
+        surface: SurfaceId,
+        description: TextureDescription,
+        write: impl FnOnce(&T) -> bool,
+    ) -> bool {
+        let Some(entry) = self.entries.get_mut(&surface) else {
+            return false;
+        };
+        if entry.dead
+            || entry.description != description
+            || !entry.texture.as_ref().is_some_and(write)
+        {
+            return false;
+        }
+        self.commits = self.commits.next();
+        entry.commit = self.commits;
+        entry.damaged = true;
+        true
     }
 
     /// Marks a surface's client as gone.
@@ -523,6 +547,7 @@ const DESTROY_DELAY: u64 = 2;
 #[must_use]
 pub fn describe(buffer: &ImportedBuffer) -> TextureDescription {
     match buffer {
+        #[cfg(target_os = "linux")]
         ImportedBuffer::Image(image) => TextureDescription {
             size: image.size,
             alpha: mapping_for(image.format)
@@ -577,6 +602,7 @@ pub fn describe_pixels(pixels: &PixelBuffer) -> TextureDescription {
 /// [`mark_dead`]: TextureLedger::mark_dead
 /// [`forget`]: TextureLedger::forget
 /// [`CaptureImporter`]: crate::import::CaptureImporter
+#[cfg(target_os = "linux")]
 pub unsafe fn destroy_due_images<T>(
     ledger: &mut TextureLedger<T>,
     arena: &ImageArena,

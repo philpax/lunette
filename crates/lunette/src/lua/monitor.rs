@@ -6,9 +6,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_capture::{
+    FrameTransform,
     mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
     monitor::MonitorKey,
-    stream::FrameTransform,
 };
 use lunette_luau::Type;
 use mlua::{IntoLua, Lua, Value};
@@ -83,9 +83,14 @@ handle! {
         Ok(this.known.borrow().mirrored)
     }
 
-    /// Whether the active stream uses wlr-screencopy, with no portal selection.
+    /// Whether the platform captures this monitor directly without a screencast portal.
     field directCapture(_lua, this) -> bool {
         Ok(this.refresh() && this.session.mirrors().is_direct(&this.key))
+    }
+
+    /// Whether the desktop should wait for the user to choose this monitor before mirroring it.
+    field explicitShare(_lua, this) -> bool {
+        Ok(this.session.mirrors().requires_explicit_share())
     }
 
     /// Whether a mirror has been asked for and has not arrived, such as while a
@@ -184,6 +189,10 @@ pub(crate) fn select_monitors<T>(session: &Rc<Session<T>>) -> (bool, Option<Stri
         SelectionOutcome::NoMonitors => (
             false,
             Some("monitor selection: no host monitors are available".to_owned()),
+        ),
+        SelectionOutcome::ChooseIndividually => (
+            false,
+            Some("Choose a display in the Monitors wrist menu.".to_owned()),
         ),
         SelectionOutcome::Refused(error) => (false, Some(error.to_string())),
     }
@@ -285,6 +294,10 @@ fn mirror<T>(monitor: &Monitor<T>) -> bool {
             true
         }
         MirrorOutcome::Refused(error) => {
+            warn!(monitor = %monitor.key, %error, "a monitor could not be mirrored");
+            false
+        }
+        MirrorOutcome::Failed(error) => {
             warn!(monitor = %monitor.key, %error, "a monitor could not be mirrored");
             false
         }

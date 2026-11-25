@@ -1,4 +1,4 @@
-//! Linux-only: the command line, and the one operation that does not start a session.
+//! Command-line options shared by the platform entry points.
 //!
 //! Lunette removes its own flags here, so the configuration's `arg` holds only what it forwards.
 
@@ -16,11 +16,7 @@ use crate::boot::{Execution, GcBudget};
 
 /// What the user asked lunette to do.
 #[derive(Debug, Parser)]
-#[command(
-    name = "lunette",
-    about = "An XR window manager and Wayland compositor.",
-    version
-)]
+#[command(name = "lunette", about = "An XR desktop and window manager.", version)]
 pub struct Cli {
     /// What lunette does when it does not start a session.
     #[command(subcommand)]
@@ -54,6 +50,16 @@ pub struct Cli {
     /// This developer comparison control does not cap an indivisible Luau step or disable automatic GC.
     #[arg(long, value_name = "MICROSECONDS", default_value_t)]
     pub luau_gc_budget_us: GcBudget,
+
+    /// Capture the visible Windows window with this exact title.
+    #[cfg(windows)]
+    #[arg(long, value_name = "TITLE", conflicts_with_all = ["list_windows", "dump_config"])]
+    pub window_title: Option<String>,
+
+    /// Print the titles of visible Windows windows and exit.
+    #[cfg(windows)]
+    #[arg(long, conflicts_with = "dump_config")]
+    pub list_windows: bool,
 
     /// Passed through to LÖVR, and on to the configuration as `arg`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -132,11 +138,11 @@ pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>,
     }
 
     let target = destination.join(ALIAS_FILE);
-    fs::write(
-        &target,
-        aliases::installed_luaurc(&standard_library.display().to_string()),
-    )
-    .map_err(|error| DumpError::Write(target.clone(), error))?;
+    let root = standard_library.to_string_lossy();
+    #[cfg(windows)]
+    let root = root.replace('\\', "/");
+    fs::write(&target, aliases::installed_luaurc(&root))
+        .map_err(|error| DumpError::Write(target.clone(), error))?;
     written.push(target);
 
     Ok(written)
@@ -247,11 +253,11 @@ mod tests {
 
         assert!(written.contains(&destination.join(".luaurc")));
         let rendered = fs::read_to_string(destination.join(".luaurc")).expect("the written file");
-        let expected = library.path().join("lunette-desktop");
-        assert!(
-            rendered.contains(&format!("\"lunette-desktop\": \"{}\"", expected.display())),
-            "{rendered}"
-        );
+        let aliases: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+        let desktop = aliases["aliases"]["lunette-desktop"]
+            .as_str()
+            .expect("desktop alias");
+        assert_eq!(Path::new(desktop), library.path().join("lunette-desktop"));
         assert!(
             !rendered.contains(".."),
             "a relative alias survived the copy: {rendered}"

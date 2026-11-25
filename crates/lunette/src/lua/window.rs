@@ -14,7 +14,6 @@ use mlua::{LuaString, Value};
 
 use crate::{
     control::wire::HandleKind,
-    import::formats::Alpha,
     lua::{
         LuaTexture, Output, Process, Session,
         declarations::{Textured, handle, record},
@@ -26,7 +25,7 @@ use crate::{
         },
     },
     properties::{PropertyError, PropertyKey, PropertyValue},
-    texture::{TextureRef, TextureUnavailable},
+    texture::{Alpha, TextureRef, TextureUnavailable},
 };
 
 /// A mapped toplevel, as Lua holds it.

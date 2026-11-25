@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use lunette_capture::{monitor::MonitorKey, stream::FrameTransform};
+use lunette_capture::{FrameTransform, monitor::MonitorKey};
 use lunette_compositor::protocol::ImageHandle;
 
 use crate::texture::TextureDescription;
@@ -157,7 +157,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::import::formats::Alpha;
+    use crate::texture::Alpha;
 
     fn monitor(index: u32) -> MonitorKey {
         MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, index))

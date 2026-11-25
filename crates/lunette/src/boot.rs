@@ -1,6 +1,6 @@
-//! Linux-only: runs LÖVR's boot sequence against symbols from the shared `liblovr.so` build.
+//! Runs LÖVR's boot sequence against the shared engine library.
 //!
-//! The sequence preserves LÖVR's step order and passes Unix paths to Lua as raw bytes. It also
+//! The sequence preserves LÖVR's step order and passes operating system paths to Lua. It also
 //! mounts the Lua module roots into LÖVR's virtual filesystem before configuration code runs.
 
 mod gc;
@@ -11,7 +11,6 @@ use std::{
     ffi::{CStr, OsString, c_int},
     mem,
     num::NonZeroU32,
-    os::unix::ffi::OsStrExt,
     path::Path,
     process::ExitCode,
     ptr,
@@ -642,7 +641,7 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, roots: &Mod
                 continue;
             }
             lua::lua_newtable(state);
-            push_bytes(state, root.source.as_os_str().as_bytes());
+            push_bytes(state, root.source.as_os_str().as_encoded_bytes());
             lua::lua_rawseti(state, -2, 1);
             push_bytes(state, root.mount_point().as_bytes());
             lua::lua_rawseti(state, -2, 2);
@@ -758,7 +757,7 @@ unsafe fn push_arg_table(
         lua::lua_setfield(state, -2, c"restart".as_ptr());
 
         for (index, entry) in (0..).zip(&entries) {
-            let bytes = entry.as_bytes();
+            let bytes = entry.as_encoded_bytes();
             lua::lua_pushlstring(state, bytes.as_ptr().cast(), bytes.len());
             lua::lua_rawseti(state, -2, index);
         }

@@ -279,6 +279,7 @@ pub struct Request {
 
 impl Request {
     /// Describes a version mismatch, if this session cannot read this request.
+    #[cfg(any(test, target_os = "linux", windows))]
     pub(crate) fn version_mismatch(&self, session_version: u8) -> Option<Reply> {
         (self.version != session_version).then_some(Reply::Incompatible {
             session: session_version,

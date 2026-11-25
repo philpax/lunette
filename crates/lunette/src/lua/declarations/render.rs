@@ -7,6 +7,7 @@ use crate::{
     lua::{
         Claim, Drag, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
         audio::{AudioBlock, AudioCapture, AudioSnapshot, AudioSource, AudioState},
+        capture_window::CaptureWindow,
         claim::ClaimLayer,
         declarations::{
             AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
@@ -81,6 +82,7 @@ fn surface() -> Vec<Item> {
     let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
         Item::Handle(collect::<Window<NullTexture>>()),
+        Item::Record(CaptureWindow::RECORD),
         Item::Record(ChildSurface::RECORD),
         Item::Record(Crop::RECORD),
         Item::Record(MonitorSelection::RECORD),

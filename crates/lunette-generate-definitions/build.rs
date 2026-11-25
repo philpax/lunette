@@ -14,6 +14,9 @@ fn main() {
     // The build script also emits it here. The crate links `liblovr.so`
     // even when Cargo does not forward the directive to a bin crate.
     println!("cargo::rustc-link-lib=dylib=lovr");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        return;
+    }
 
     for name in LOVR_DIRECTORY_VARS {
         let Some(directory) = env::var_os(name) else {

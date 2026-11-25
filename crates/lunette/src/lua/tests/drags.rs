@@ -12,9 +12,8 @@ use crate::{
         answer,
         wire::{Handle, HandleId, HandleKind, Reply, Value},
     },
-    import::formats::Alpha,
     lua::tests::seats::{seat, seated},
-    texture::TextureDescription,
+    texture::{Alpha, TextureDescription},
 };
 
 const ICON_SURFACE: u64 = 7;

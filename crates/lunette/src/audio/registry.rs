@@ -6,12 +6,9 @@ use lunette_capture::audio::{
     AudioBlock, AudioError, AudioPublication, AudioReaderId, AudioService, CaptureState,
     ProcessCaptureStatus, Source, UnavailableReason,
 };
-use lunette_compositor::{
-    protocol::{
-        AudioAttributionRequest, Event, ProcessId, ProcessInstance, ProcessObservation,
-        ProcessObservationFailure, ProcessSnapshot, Snapshot,
-    },
-    spawn::ProcessInspector,
+use lunette_compositor::protocol::{
+    AudioAttributionRequest, Event, ProcessId, ProcessInspector, ProcessInstance,
+    ProcessObservation, ProcessObservationFailure, ProcessSnapshot, Snapshot,
 };
 
 use crate::audio::observer::{CandidateObserver, ObservationJob};
@@ -50,6 +47,14 @@ pub struct NativeAudioRegistry {
 }
 
 impl NativeAudioRegistry {
+    /// Uses a backend that resolves native process identities without an observer.
+    #[cfg(windows)]
+    pub fn native_processes(service: AudioService) -> Self {
+        Self {
+            state: RefCell::new(RegistryState::new(Some(service), None, String::new())),
+        }
+    }
+
     /// Moves process inspection to a bounded worker. Frame and Lua calls never inspect `/proc`.
     pub fn new(
         service: AudioService,

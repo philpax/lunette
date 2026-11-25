@@ -1,10 +1,13 @@
 //! The compositor's start-up configuration and its default seat and output.
 
+#[cfg(target_os = "linux")]
 use smithay::backend::allocator::Format;
 
+use crate::protocol::{OutputId, SeatId};
+#[cfg(target_os = "linux")]
 use crate::{
     listener::WaylandEnv,
-    protocol::{KeymapDefaults, OutputId, OutputMode, OutputScale, PixelSize, RefreshRate, SeatId},
+    protocol::{KeymapDefaults, OutputMode, OutputScale, PixelSize, RefreshRate},
     satellite::XwaylandSatellite,
     selection::HostSelectionSource,
 };
@@ -27,6 +30,7 @@ pub const DEFAULT_OUTPUT: OutputId = match OutputId::new(1) {
 };
 
 /// The default seat's name, which clients see on `wl_seat.name`.
+#[cfg(target_os = "linux")]
 pub(crate) const SEAT_NAME: &str = "lunette";
 
 /// Configuration for the virtual monitor, buffer support, host selection, X11
@@ -34,6 +38,7 @@ pub(crate) const SEAT_NAME: &str = "lunette";
 ///
 /// The output size is configurable, so this value provides defaults.
 #[derive(Debug)]
+#[cfg(target_os = "linux")]
 pub struct CompositorConfig {
     pub output: OutputMode,
     pub dmabuf: DmabufSupport,
@@ -49,6 +54,7 @@ pub struct CompositorConfig {
     pub keymap_defaults: KeymapDefaults,
 }
 
+#[cfg(target_os = "linux")]
 impl Default for CompositorConfig {
     fn default() -> Self {
         Self {
@@ -73,6 +79,7 @@ impl Default for CompositorConfig {
 /// whose driver lacks the import extensions), the global is still advertised
 /// with no formats, and clients fall back to `wl_shm`.
 #[derive(Clone, Debug, Default)]
+#[cfg(target_os = "linux")]
 pub struct DmabufSupport {
     /// The DRM render node for these formats. Version 4 feedback requires it.
     pub main_device: Option<RenderNode>,
@@ -84,8 +91,10 @@ pub struct DmabufSupport {
 /// Wrapping `libc::dev_t` prevents confusing a device number with its major or
 /// minor component.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg(target_os = "linux")]
 pub struct RenderNode(libc::dev_t);
 
+#[cfg(target_os = "linux")]
 impl RenderNode {
     /// Builds a device number from the major and minor a Vulkan
     /// `VkPhysicalDeviceDrmPropertiesEXT` reports.

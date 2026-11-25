@@ -29,7 +29,7 @@ use crate::{
     events::LuaEvent,
     host::HostPointer,
     import::{CaptureImporter, DeviceError, GraphicsDevice, ImageArena, Importer},
-    layers::{BlitLedger, LovrBlits, LovrLayers},
+    layers::{BlitLedger, LovrBlits, LovrLayers, submit_window_layers},
     lua::{PoolRegistry, Session},
     mirrors::MirrorFrames,
     texture::{BarrierPolicy, LovrTexture, Released, destroy_due_images},
@@ -225,7 +225,12 @@ impl FrameDriver {
         });
 
         // After the acquire barriers because a copy reads the imported texture, and before `lovr.draw` because the copy is recorded into the same stream.
-        self.blit_layers();
+        submit_window_layers(
+            &self.session,
+            &self.layers,
+            &mut self.blits,
+            &mut self.blitted,
+        );
 
         // Last, because `destroy_due_images` is sound only after the drain has released the textures the frame's events displaced.
         if let Some(graphics) = self.compositor.as_ref().and_then(Compositor::graphics) {
@@ -412,45 +417,6 @@ impl FrameDriver {
             GraphicsState::Quiesced => return,
         };
         self.negotiate_capture_formats(&device);
-    }
-
-    /// Copies each claim's window into its layer, and hands the runtime the list to composite.
-    ///
-    /// A layer skipped because its window has not committed still goes to the runtime, which re-composites its last image. Omitting it would hide the panel.
-    fn blit_layers(&mut self) {
-        let scene = self.session.scene();
-        let session = Rc::clone(&self.session);
-        let blits = &mut self.blits;
-        let blitted = &mut self.blitted;
-
-        self.layers.with_pool(|pool| {
-            session.with_textures(|textures| {
-                let report = blitted.run(pool, blits, textures, |claim| {
-                    session
-                        .claims()
-                        .source(claim)
-                        .and_then(|window| session.window(window))
-                        .map(|window| window.surface)
-                });
-
-                if report.iter().any(|(_, outcome)| outcome.copied()) {
-                    // Matters only on a frame that draws no scene. `crate::scene` has the reasoning.
-                    session.note_copies_recorded();
-                }
-
-                for (claim, outcome) in report {
-                    // `Blitted` decides which outcomes are permanent, and the blit ledger has already reported each once per claim.
-                    if outcome.worth_reporting_every_frame() {
-                        warn!(%claim, ?outcome, "a layer was not updated this frame");
-                    }
-                }
-            });
-
-            // The frame's whole layer list, which decides whether lunette's projection layer belongs in this `xrEndFrame`.
-            if !pool.submit(scene) {
-                warn!("the runtime refused this frame's composition layers");
-            }
-        });
     }
 
     /// Applies the frame's events to the ledger and queues them for Lua.

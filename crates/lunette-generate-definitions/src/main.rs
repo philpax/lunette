@@ -82,10 +82,18 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
+    if arguments
+        .iter()
+        .any(|argument| argument == "--portable-config-aliases")
+    {
+        print!("{}", lunette::aliases::installed_luaurc("../lua"));
+        return ExitCode::SUCCESS;
+    }
 
     let checking = arguments.iter().any(|argument| argument == "--check");
 
-    match run(checking) {
+    let native_only = arguments.iter().any(|argument| argument == "--native-only");
+    match run(checking, native_only) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -96,9 +104,16 @@ fn main() -> ExitCode {
 }
 
 /// Generates the output files and writes them or compares them with checked-in files.
-fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
+fn run(checking: bool, native_only: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = root.canonicalize()?;
+    let native = (
+        PathBuf::from(MODULE_DECLARATIONS),
+        lunette::lua::declarations::render(),
+    );
+    if native_only {
+        return finish(&root, &[native], checking);
+    }
 
     let lua = Lua::new();
 
@@ -120,13 +135,7 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let generated = PathBuf::from(source_dir).join("luau").join("lovr.d.luau");
     let text = fs::read_to_string(&generated)?;
 
-    let mut generated = vec![
-        (PathBuf::from(CHECKER_DEFINITIONS), text),
-        (
-            PathBuf::from(MODULE_DECLARATIONS),
-            lunette::lua::declarations::render(),
-        ),
-    ];
+    let mut generated = vec![(PathBuf::from(CHECKER_DEFINITIONS), text), native];
     generated.extend(
         ALIAS_FILES
             .iter()
@@ -139,9 +148,17 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
         ));
     }
 
+    finish(&root, &generated, checking)
+}
+
+fn finish(
+    root: &Path,
+    generated: &[(PathBuf, String)],
+    checking: bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
     if checking {
         let mut current = true;
-        for (path, contents) in &generated {
+        for (path, contents) in generated {
             current &= compare(&root.join(path), contents)?;
         }
 
@@ -154,7 +171,7 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
         return Ok(current);
     }
 
-    for (path, contents) in &generated {
+    for (path, contents) in generated {
         let path = root.join(path);
         if let Some(directory) = path.parent() {
             fs::create_dir_all(directory)?;

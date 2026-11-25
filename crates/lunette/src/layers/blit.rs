@@ -239,10 +239,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        import::formats::Alpha,
         layers::{LayerBudget, LayerSize, Priority, SessionId, SessionPresence},
         scene::SceneRendering,
-        texture::{CopyableTexture, FrameGeneration, TextureDescription},
+        texture::{Alpha, CopyableTexture, FrameGeneration, TextureDescription},
     };
 
     /// A texture that is a number, so the decision can be exercised without a

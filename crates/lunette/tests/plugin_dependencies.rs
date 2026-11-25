@@ -94,25 +94,24 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
     }
     let Some(owner) = target_owner else {
         return !target.starts_with("lua/lunette-plugins")
-            || matches!(
-                target.to_str(),
-                Some(
-                    "lua/lunette-plugins/diagnostics/protected-call.luau"
-                        | "lua/lunette-plugins/diagnostics/desktop-logging.luau"
-                        | "lua/lunette-plugins/graphics/pass-state.luau"
-                        | "lua/lunette-plugins/graphics/client-pixels.luau"
-                        | "lua/lunette-plugins/graphics/curved-surface.luau"
-                        | "lua/lunette-plugins/graphics/rounded-geometry.luau"
-                        | "lua/lunette-plugins/graphics/rounded-drawing.luau"
-                        | "lua/lunette-plugins/registration/listeners.luau"
-                        | "lua/lunette-plugins/registration/registry.luau"
-                        | "lua/lunette-plugins/lifecycle/cleanup.luau"
-                        | "lua/lunette-plugins/interaction/picking.luau"
-                        | "lua/lunette-plugins/menu/toggle.luau"
-                        | "lua/lunette-plugins/storage/saved-settings.luau"
-                        | "lua/lunette-plugins/storage/versioned-file.luau"
-                )
-            );
+            || [
+                "lua/lunette-plugins/diagnostics/protected-call.luau",
+                "lua/lunette-plugins/diagnostics/desktop-logging.luau",
+                "lua/lunette-plugins/graphics/pass-state.luau",
+                "lua/lunette-plugins/graphics/client-pixels.luau",
+                "lua/lunette-plugins/graphics/curved-surface.luau",
+                "lua/lunette-plugins/graphics/rounded-geometry.luau",
+                "lua/lunette-plugins/graphics/rounded-drawing.luau",
+                "lua/lunette-plugins/registration/listeners.luau",
+                "lua/lunette-plugins/registration/registry.luau",
+                "lua/lunette-plugins/lifecycle/cleanup.luau",
+                "lua/lunette-plugins/interaction/picking.luau",
+                "lua/lunette-plugins/menu/toggle.luau",
+                "lua/lunette-plugins/storage/saved-settings.luau",
+                "lua/lunette-plugins/storage/versioned-file.luau",
+            ]
+            .iter()
+            .any(|export| target == Path::new(export));
     };
     if source_owner == Some(owner) {
         return true;
@@ -120,14 +119,13 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
     matches!(
         target.strip_prefix(owner).ok().and_then(Path::to_str),
         Some("init.luau" | "config.luau")
-    ) || matches!(
-        target.to_str(),
-        Some(
-            "lua/lunette-plugins/input/keyboard/hooks.luau"
-                | "lua/lunette-plugins/input/keyboard/legend.luau"
-                | "lua/lunette-plugins/layout/arc/geometry.luau"
-        )
-    )
+    ) || [
+        "lua/lunette-plugins/input/keyboard/hooks.luau",
+        "lua/lunette-plugins/input/keyboard/legend.luau",
+        "lua/lunette-plugins/layout/arc/geometry.luau",
+    ]
+    .iter()
+    .any(|export| target == Path::new(export))
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Linux platform: builds LÖVR as `liblovr.so`, links it dynamically, and
+//! Builds LÖVR as a shared library, links it dynamically, and
 //! generates its FFI bindings.
 //!
 //! LÖVR exports no CMake interface, so the bindgen pass mirrors its private
@@ -21,12 +21,7 @@ const JOLT_SOURCE_VAR: &str = "LUNETTE_JOLTPHYSICS_SRC";
 
 /// The LÖVR compile definitions that apply in the default configuration,
 /// mirroring `vendor/lovr/CMakeLists.txt`.
-const LOVR_DEFINES: [&str; 4] = [
-    "-DLOVR_VK",
-    "-DLOVR_USE_GLSLANG",
-    "-DLOVR_USE_GLFW",
-    "-DLOVR_USE_PHONON",
-];
+const LOVR_DEFINES: [&str; 3] = ["-DLOVR_VK", "-DLOVR_USE_GLSLANG", "-DLOVR_USE_GLFW"];
 
 /// The private include directories of the `lovr` target, relative to
 /// `vendor/lovr`.
@@ -63,27 +58,39 @@ fn build() -> Result<(), BuildError> {
     // other channel.
     let manifest_dir = PathBuf::from(required_var("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(required_var("OUT_DIR")?);
+    let windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
     let jolt_source = env::var_os(JOLT_SOURCE_VAR);
-    if jolt_source.is_none() {
+    if !windows && jolt_source.is_none() {
         println!(
             "cargo::warning={JOLT_SOURCE_VAR} is unset, so cmake fetches JoltPhysics over the \
              network at configure time. Set it to a checkout of the revision \
              `vendor/lovr/deps/joltc/CMakeLists.txt` declares to build offline."
         );
     }
-    let lovr_dir = canonicalize(&manifest_dir.join("../../vendor/lovr"))?;
+    let lovr_source = manifest_dir.join("../../vendor/lovr");
+    // CMake does not accept the verbatim drive paths produced by canonicalize on Windows.
+    let lovr_dir = if windows {
+        lovr_source
+    } else {
+        canonicalize(&lovr_source)?
+    };
 
     println!("cargo::rerun-if-env-changed={JOLT_SOURCE_VAR}");
     watch_lovr_sources(&lovr_dir)?;
 
-    let cmake_out = build_lovr(&lovr_dir, jolt_source.as_ref());
-    let lovr_build = find_lovr_build(&cmake_out)?;
-    // The shim's Luau references require its link directives before
-    // `liblovr.so`.
-    build_analyze_shim(&lovr_dir);
-    emit_link_directives(&lovr_build);
+    let shim = manifest_dir.join("src/analyze.cpp");
+    println!("cargo::rerun-if-changed={}", shim.display());
+    println!("cargo::rerun-if-changed=src/analyze_navigation.h");
+
+    let cmake_out = build_lovr(&lovr_dir, jolt_source.as_ref(), &shim, windows);
+    let lovr_build = find_lovr_build(&cmake_out, windows)?;
+    if !windows {
+        // The shim's Luau references require its link directives before liblovr.so.
+        build_analyze_shim(&lovr_dir, &shim);
+    }
+    emit_link_directives(&lovr_build, windows);
     stage_boot_lua(&lovr_dir, &out_dir)?;
-    generate_bindings(&manifest_dir, &lovr_dir, &out_dir)
+    generate_bindings(&manifest_dir, &lovr_dir, &out_dir, windows)
 }
 
 /// Declares the LÖVR files whose contents govern the cmake build.
@@ -158,7 +165,12 @@ fn is_generated_header(path: &Path) -> bool {
 ///
 /// The build targets `all`, not `install`, because phonon's install rule
 /// expects a `.dbg` file that a shared build does not produce.
-fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
+fn build_lovr(
+    lovr_dir: &Path,
+    jolt_source: Option<&OsString>,
+    shim: &Path,
+    windows: bool,
+) -> PathBuf {
     let configure = || {
         let mut config = cmake::Config::new(lovr_dir);
         // mlua links the Lua C API from `liblovr.so`, and `lunette check` runs
@@ -172,19 +184,23 @@ fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON");
-        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        if windows || env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
             config.define("LOVR_ENABLE_OPENVR", "ON");
+        }
+        if windows {
+            config
+                .define("LOVR_USE_STEAM_AUDIO", "OFF")
+                .define("LOVR_ENABLE_PHYSICS", "OFF")
+                // The AST's inline type IDs must share one instance with the parser on PE.
+                .define("LOVR_EMBEDDED_ANALYSIS_SOURCE", shim);
+        } else {
+            // liblovr.so must resolve its dependencies from the staged bin/ directory itself.
+            config.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin");
         }
         if let Some(source) = jolt_source {
             config.define("FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS", source);
         }
         config
-            // In the build tree `move_files` stages the shared dependencies in
-            // `bin/`, so `$ORIGIN/bin` must be on `liblovr.so`'s rpath. The
-            // executable cannot supply it, because a `DT_RUNPATH` is not
-            // consulted for a dependency's dependencies. The shell strips the
-            // backslash in cmake's link script, leaving a literal `$ORIGIN`.
-            .define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-rpath,\\$ORIGIN/bin")
             // LÖVR sets it only on the targets it links, and the define applies
             // it to every target.
             .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
@@ -206,20 +222,25 @@ fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
 ///
 /// Only `liblovr.so` is named, because it contains Luau and exports the Lua C
 /// API mlua declares.
-fn emit_link_directives(build: &LovrBuild) {
+fn emit_link_directives(build: &LovrBuild, windows: bool) {
     let library_dir = build.library_dir.display();
     let staged_dir = build.staged_dir.display();
 
     println!("cargo::rustc-link-search=native={library_dir}");
     println!("cargo::rustc-link-search=native={staged_dir}");
+    if let Some(msdf_import) = &build.msdf_import {
+        println!("cargo::rustc-link-search=native={}", msdf_import.display());
+    }
     println!("cargo::rustc-link-lib=dylib=lovr");
 
     // `rustc-link-arg`, not `rustc-link-arg-bins`, so test binaries resolve the
     // library too. The directories are also emitted as `cargo::metadata`,
     // because the rpath arguments do not reach dependents.
-    println!("cargo::rustc-link-arg=-Wl,-rpath,{library_dir}");
-    println!("cargo::rustc-link-arg=-Wl,-rpath,{staged_dir}");
-    println!("cargo::rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    if !windows {
+        println!("cargo::rustc-link-arg=-Wl,-rpath,{library_dir}");
+        println!("cargo::rustc-link-arg=-Wl,-rpath,{staged_dir}");
+        println!("cargo::rustc-link-arg=-Wl,-rpath,$ORIGIN");
+    }
 
     println!("cargo::metadata=library_dir={library_dir}");
     println!("cargo::metadata=staged_dir={staged_dir}");
@@ -229,15 +250,10 @@ fn emit_link_directives(build: &LovrBuild) {
 ///
 /// Nothing beyond `liblovr.so` is linked, because a second copy of Luau hangs
 /// static initialisation on its FFlag statics.
-fn build_analyze_shim(lovr_dir: &Path) {
+fn build_analyze_shim(lovr_dir: &Path, shim: &Path) {
     let luau = lovr_dir.join("deps").join("luau");
-    let shim = Path::new("src").join("analyze.cpp");
-
-    println!("cargo::rerun-if-changed={}", shim.display());
-    println!("cargo::rerun-if-changed=src/analyze_navigation.h");
-
     let mut build = cc::Build::new();
-    build.cpp(true).std("c++17").file(&shim);
+    build.cpp(true).std("c++17").file(shim);
 
     // Fortify requires optimisation, even when Cargo's debug profile requests none.
     if env::var("OPT_LEVEL").as_deref() == Ok("0") {
@@ -280,6 +296,7 @@ fn generate_bindings(
     manifest_dir: &Path,
     lovr_dir: &Path,
     out_dir: &Path,
+    windows: bool,
 ) -> Result<(), BuildError> {
     let wrapper = manifest_dir.join("wrapper.h");
     println!("cargo::rerun-if-changed={}", wrapper.display());
@@ -289,7 +306,7 @@ fn generate_bindings(
         .iter()
         .map(|relative| format!("-I{}", lovr_dir.join(relative).display()));
 
-    let bindings = bindgen::Builder::default()
+    let mut builder = bindgen::Builder::default()
         .header(wrapper.to_string_lossy())
         // The `lovr` target sets `C_STANDARD 11`, and bindgen parses the same
         // dialect.
@@ -298,7 +315,11 @@ fn generate_bindings(
         // duplicate paths.
         .detect_include_paths(env::var_os("BINDGEN_EXTRA_CLANG_ARGS").is_none())
         .clang_args(includes)
-        .clang_args(LOVR_DEFINES)
+        .clang_args(LOVR_DEFINES);
+    if !windows {
+        builder = builder.clang_arg("-DLOVR_USE_PHONON");
+    }
+    let bindings = builder
         .allowlist_function("luax_.*")
         // The `luax_.*` pattern does not match `_luax_pushtype`, so it is named
         // separately. It retains the object, so a caller keeps its own
@@ -385,6 +406,7 @@ struct LovrBuild {
     library_dir: PathBuf,
     /// The `bin/` tree LÖVR copies its shared dependencies into.
     staged_dir: PathBuf,
+    msdf_import: Option<PathBuf>,
 }
 
 /// Locates `liblovr.so` and the staged runtime tree beside it.
@@ -392,23 +414,56 @@ struct LovrBuild {
 /// The build does not follow the `cmake` crate's install-prefix layout, and a
 /// guessed path produces a link error far from its cause, so the library is
 /// searched for.
-fn find_lovr_build(cmake_out: &Path) -> Result<LovrBuild, BuildError> {
+fn find_lovr_build(cmake_out: &Path, windows: bool) -> Result<LovrBuild, BuildError> {
     let mut found = Vec::new();
-    collect_matches(cmake_out, "liblovr.so", &mut found)?;
+    let library_names: &[&str] = if windows {
+        &["lovr.dll", "liblovr.dll"]
+    } else {
+        &["liblovr.so"]
+    };
+    for name in library_names {
+        collect_matches(cmake_out, name, &mut found)?;
+    }
 
     let [library] = found.as_slice() else {
         return Err(BuildError::LocateLibrary {
             searched: cmake_out.to_path_buf(),
+            name: library_names[0],
             found,
         });
     };
 
     let library_dir = library.parent().ok_or(BuildError::LibraryAtRoot)?;
-    let staged_dir = library_dir.join("bin");
+    let (staged_dir, msdf_import) = if windows {
+        let import_names = ["msdfgen.lib", "libmsdfgen.dll.a"];
+        let mut found = Vec::new();
+        for name in import_names {
+            collect_matches(cmake_out, name, &mut found)?;
+        }
+        let [import] = found.as_slice() else {
+            return Err(BuildError::LocateLibrary {
+                searched: cmake_out.to_path_buf(),
+                name: import_names[0],
+                found,
+            });
+        };
+        (
+            library_dir.to_path_buf(),
+            Some(
+                import
+                    .parent()
+                    .ok_or(BuildError::LibraryAtRoot)?
+                    .to_path_buf(),
+            ),
+        )
+    } else {
+        (library_dir.join("bin"), None)
+    };
 
     Ok(LovrBuild {
         library_dir: library_dir.to_path_buf(),
         staged_dir,
+        msdf_import,
     })
 }
 
@@ -476,6 +531,7 @@ enum BuildError {
     },
     LocateLibrary {
         searched: PathBuf,
+        name: &'static str,
         found: Vec<PathBuf>,
     },
     LibraryAtRoot,
@@ -505,10 +561,14 @@ impl fmt::Display for BuildError {
             Self::Canonicalize { path, cause: _ } => {
                 write!(f, "could not resolve {}", path.display())
             }
-            Self::LocateLibrary { searched, found } => {
+            Self::LocateLibrary {
+                searched,
+                name,
+                found,
+            } => {
                 write!(
                     f,
-                    "expected exactly one liblovr.so under {}, found {}",
+                    "expected exactly one {name} under {}, found {}",
                     searched.display(),
                     found.len()
                 )?;
@@ -518,7 +578,7 @@ impl fmt::Display for BuildError {
                 Ok(())
             }
             Self::LibraryAtRoot => {
-                write!(f, "liblovr.so has no parent directory to link against")
+                write!(f, "the library has no parent directory to link against")
             }
             Self::CopyBootScript {
                 source_path,

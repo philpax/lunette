@@ -1,4 +1,4 @@
-//! Linux-specific: wraps textures imported by the compositor as LÖVR textures.
+//! Wraps desktop surfaces as LÖVR textures.
 //!
 //! The frame thread owns everything in this module. The compositor thread creates images
 //! and repacks pixels; this module turns either into a `Texture` LÖVR can
@@ -16,13 +16,26 @@ mod ledger;
 mod lovr;
 mod monitor;
 
+#[cfg(target_os = "linux")]
+pub use ledger::destroy_due_images;
+
 pub use self::{
     barrier::{BarrierPolicy, ForeignLayout, QueueFamilyMode},
     generation::{FrameGeneration, SurfaceCommit},
     ledger::{
         CopyableTexture, Released, TextureDescription, TextureLedger, TextureRef,
-        TextureUnavailable, describe, describe_pixels, destroy_due_images,
+        TextureUnavailable, describe, describe_pixels,
     },
     lovr::{LovrTexture, TextureError},
     monitor::MonitorTextures,
 };
+
+/// Whether a format's fourth component carries alpha or padding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Alpha {
+    /// The fourth component is alpha, and a consumer samples it.
+    Present,
+    /// The fourth component is undefined padding, and a consumer forces it to
+    /// one. Sampling it renders the surface with arbitrary transparency.
+    Opaque,
+}

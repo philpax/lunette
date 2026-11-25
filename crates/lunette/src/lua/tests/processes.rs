@@ -5,31 +5,34 @@
 //! snapshot lists it. A spawn that fails to start is reported through
 //! `lovr.lunprocessexited`; the call does not raise.
 
-use std::{ffi::OsStr, rc::Rc};
+use std::ffi::OsStr;
 
-use lunette_capture::audio::{
-    AudioService, RecordedAudioCommand, RecordingAudioBackend, Source, SourceLimits,
-};
-use lunette_compositor::{
-    protocol::{
-        Command, Pid, ProcessId, ProcessObservation, ProcessObservationFailure, ProcessSnapshot,
-    },
-    testing::{FakeInspector, adopted_process_snapshots},
+use lunette_compositor::protocol::{
+    Command, ProcessId, ProcessObservation, ProcessObservationFailure, ProcessSnapshot,
 };
 use mlua::Value;
 use pretty_assertions::assert_eq;
-
-use crate::{
-    audio::{AudioRegistry, NativeAudioRegistry},
-    events::RecordingEventSink,
-    host::NoHostSinks,
-    layers::LayerPool,
-    lua::{
-        PoolRegistry, Session,
-        tests::{error, layers::FakeLayers, lua, run, session, snapshot, window},
+#[cfg(target_os = "linux")]
+use {
+    crate::{
+        audio::{AudioRegistry, NativeAudioRegistry},
+        events::RecordingEventSink,
+        host::NoHostSinks,
+        layers::LayerPool,
+        lua::{PoolRegistry, Session, tests::layers::FakeLayers},
+        mirrors::NoMonitors,
     },
-    mirrors::NoMonitors,
+    lunette_capture::audio::{
+        AudioService, RecordedAudioCommand, RecordingAudioBackend, Source, SourceLimits,
+    },
+    lunette_compositor::{
+        protocol::Pid,
+        testing::{FakeInspector, adopted_process_snapshots},
+    },
+    std::rc::Rc,
 };
+
+use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn spawning_queues_a_request_under_a_distinct_identifier_it_returned() {
@@ -139,6 +142,7 @@ fn window_process_handle_association() {
     ));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn adjacent_adopted_process_ids_remain_distinct_in_native_lua_and_capture_snapshots() {
     let processes = adopted_process_snapshots(&[

@@ -20,3 +20,6 @@ pub use self::{
     lovr::{LovrBlits, LovrLayer, LovrLayers},
     pool::{ClaimId, ClaimState, LayerBudget, LayerPool, Priority},
 };
+
+mod frames;
+pub(crate) use frames::submit_window_layers;

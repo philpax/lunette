@@ -252,8 +252,9 @@ pub fn publish(lua: &Lua, between_seconds: Option<f64>) -> mlua::Result<()> {
 
 /// Adds frame phase marks and ordered preparatory passes at checked boot boundaries.
 pub fn instrument_boot(source: &[u8]) -> Result<String, String> {
-    let mut source = String::from_utf8(source.to_vec())
-        .map_err(|error| format!("frame timing: boot source: {error}"))?;
+    let mut source = std::str::from_utf8(source)
+        .map_err(|error| format!("frame timing: boot source: {error}"))?
+        .replace("\r\n", "\n");
     let replacements = [
         (
             "local lovr = lovr",

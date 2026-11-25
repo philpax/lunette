@@ -43,7 +43,7 @@
 use std::rc::Rc;
 
 use lunette_capture::{
-    hid::{PanelPoint, WheelDelta, XkbKeymap as HostKeymap},
+    hid::{PanelPoint, WheelDelta},
     monitor::MonitorKey,
 };
 use lunette_compositor::{
@@ -55,9 +55,12 @@ use lunette_compositor::{
 };
 use mlua::UserDataRef;
 
+#[cfg(not(windows))]
+use crate::host::{host_button, host_key, host_modifiers};
+#[cfg(windows)]
+use crate::lua::monitor_input::MonitorInput;
 use crate::{
     control::wire::HandleKind,
-    host::{host_button, host_key, host_modifiers},
     lua::{
         LuaTexture, Seat, Session,
         declarations::handle,
@@ -164,6 +167,11 @@ handle! {
     /// sink came from does not reveal the domain.
     field domain(_lua, this) -> SinkDomain {
         Ok(SinkDomain(this.domain()))
+    }
+
+    /// Whether this sink accepts Unicode text without translating it to seat keycodes.
+    field directText(_lua, _this) -> bool {
+        Ok(cfg!(windows))
     }
 
     /// The compositor's identifier for a window sink, and nothing for a host
@@ -285,6 +293,9 @@ fn pointer<T>(sink: &Sink<T>, seat: SeatId, position: PixelPoint) -> bool {
             let Some(hit) = normalise(sink, monitor, position) else {
                 return false;
             };
+            #[cfg(windows)]
+            return queue_monitor(sink, monitor, seat, MonitorInput::Point(hit));
+            #[cfg(not(windows))]
             sink.session.host().pointer(monitor, hit)
         }
     }
@@ -303,6 +314,11 @@ fn button_pressed<T>(sink: &Sink<T>, seat: SeatId, button: PointerButton, presse
             });
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => {
+            queue_monitor(sink, monitor, seat, MonitorInput::Button(button, pressed))
+        }
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => {
             sink.session.host().button(host_button(button), pressed);
             true
@@ -317,17 +333,17 @@ fn button_pressed<T>(sink: &Sink<T>, seat: SeatId, button: PointerButton, presse
 /// other one, and a compositor inferring focus from motion makes this
 /// impossible.
 ///
-/// A host sink returns false: the host cursor is always somewhere on the
-/// host desktop, and no position means "nowhere". A dead handle returns
-/// false too, as every method does: the compositor withdraws a window's
-/// pointer when its client exits, so success would report a withdrawal that
-/// did not happen.
+/// A Windows monitor sink ends any drag it owns. A Linux host sink keeps the
+/// desktop cursor at its last position. Dead handles refuse input.
 fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
     match &sink.target {
         SinkTarget::Window(_) => {
             sink.session.queue(Command::PointerLeave { seat });
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => queue_monitor(sink, monitor, seat, MonitorInput::Leave),
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => false,
     }
 }
@@ -339,9 +355,7 @@ fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
 /// scroll arrive as two separate gestures. An axis whose delta is zero sends
 /// nothing.
 ///
-/// The host takes the vertical axis. `HidProvider::wheel` is one number,
-/// the form both `zwlr_virtual_pointer_v1`'s axis request and uinput's
-/// `REL_WHEEL` carry.
+/// Monitor sinks convert surface pixels to wheel detents.
 fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: f64, vertical: f64) -> bool {
     match &sink.target {
         SinkTarget::Window(id) => {
@@ -361,6 +375,14 @@ fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: f64, vertical: f64) -> bo
             }
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => queue_monitor(
+            sink,
+            monitor,
+            seat,
+            MonitorInput::Wheel(WheelDelta::new(detents(horizontal), detents(vertical))),
+        ),
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => {
             let delta = WheelDelta::new(detents(horizontal), detents(vertical));
             if delta.is_zero() {
@@ -395,6 +417,11 @@ fn key_pressed<T>(sink: &Sink<T>, seat: SeatId, key: Keycode, pressed: bool) -> 
             sink.session.queue(Command::Key { seat, key, pressed });
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => {
+            queue_monitor(sink, monitor, seat, MonitorInput::Key(key, pressed))
+        }
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => {
             let Some(key) = host_key(key) else {
                 return false;
@@ -421,6 +448,14 @@ fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) ->
             });
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => queue_monitor(
+            sink,
+            monitor,
+            seat,
+            MonitorInput::Modifiers(modifiers.clone()),
+        ),
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => {
             let Some(modifiers) = host_modifiers(modifiers) else {
                 return false;
@@ -452,6 +487,9 @@ fn type_text<T>(sink: &Sink<T>, seat: SeatId, text: String) -> bool {
             sink.session.queue(Command::TypeText { seat, text });
             true
         }
+        #[cfg(windows)]
+        SinkTarget::Host(monitor) => queue_monitor(sink, monitor, seat, MonitorInput::Text(text)),
+        #[cfg(not(windows))]
         SinkTarget::Host(_) => false,
     }
 }
@@ -465,16 +503,36 @@ fn type_text<T>(sink: &Sink<T>, seat: SeatId, text: String) -> bool {
 ///
 /// Returns false when the seat is not in this frame's snapshot; in that case
 /// there is no layout to send.
+#[cfg(target_os = "linux")]
 fn upload_layout<T>(sink: &Sink<T>, seat: SeatId) -> bool {
     let snapshot = sink.session.snapshot();
     let Some(entry) = snapshot.seats.iter().find(|entry| entry.seat == seat) else {
         return false;
     };
-    let Some(keymap) = HostKeymap::new(entry.keymap.as_str()) else {
+    let Some(keymap) = lunette_capture::hid::XkbKeymap::new(entry.keymap.as_str()) else {
         return false;
     };
 
     sink.session.host().set_keymap(&keymap)
+}
+
+#[cfg(windows)]
+fn queue_monitor<T>(
+    sink: &Sink<T>,
+    monitor: &MonitorKey,
+    seat: SeatId,
+    input: MonitorInput,
+) -> bool {
+    if !sink
+        .session
+        .mirrors()
+        .state(monitor)
+        .is_some_and(|state| state.mirrored)
+    {
+        return false;
+    }
+    sink.session.queue_monitor(seat, monitor, input);
+    true
 }
 
 /// Turns a pixel coordinate on a mirrored monitor into a hit on its surface.

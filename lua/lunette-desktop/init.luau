@@ -22,6 +22,7 @@ local tags = require '@lunette-plugins/workspace/tags'
 local rules = require '@lunette-plugins/window/rule-resolver'
 local placement = require '@lunette-plugins/window/placement'
 local adoption = require '@lunette-plugins/window/adoption'
+local windowCapture = require '@lunette-plugins/window/capture'
 local layouts = require '@lunette-plugins/layout/catalog'
 local arc = require '@lunette-plugins/layout/arc'
 local errorStream = require '@lunette-plugins/diagnostics/error-stream'
@@ -114,6 +115,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/placement-memory', definition = placementMemory.definition },
   { id = 'desktop/arrange', definition = arrange.definition },
   { id = 'desktop/adoption', definition = adoptionConsumer.definition },
+  { id = 'desktop/window-capture', definition = windowCapture.definition },
   { id = 'desktop/pacing', definition = pacing.definition },
   { id = 'desktop/scale', definition = scale.definition },
   { id = 'desktop/backdrop', definition = backdrop.definition },

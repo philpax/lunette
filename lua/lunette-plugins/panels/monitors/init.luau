@@ -67,7 +67,7 @@ local function menuActions(shared: Shared): plugin.Definition<ChildConfig>
           id = 'desktop/monitors/' .. id,
           label = monitor.name,
           group = 'Monitors',
-          visible = not shared.hidden[id],
+          visible = if monitor.explicitShare then monitor.mirrored or monitor.pending else not shared.hidden[id],
           show = function(): ()
             local live = monitorWithId(id)
             if live then
@@ -78,7 +78,9 @@ local function menuActions(shared: Shared): plugin.Definition<ChildConfig>
             shared.unmirror(id)
           end,
           save = function(open: boolean): ()
-            shared.setHidden(id, not open)
+            if not monitor.explicitShare then
+              shared.setHidden(id, not open)
+            end
           end,
         })
       end
@@ -100,9 +102,12 @@ local function menuActions(shared: Shared): plugin.Definition<ChildConfig>
         phase = 'scene',
         run = function(): ()
           for id, opened in shared.toggles do
-            if not monitorWithId(id) then
+            local live = monitorWithId(id)
+            if not live then
               opened:dispose()
               shared.toggles[id] = nil
+            elseif live.explicitShare and opened:open() and not live.mirrored and not live.pending then
+              opened:set(false)
             end
           end
         end,
@@ -232,14 +237,19 @@ return plugin.consumer<<Config, Settings>> {
       if panelService:forSource(monitor) then
         return
       end
+      local accepted = false
       local mirrored = context:effect(function(): () -> ()
-        monitor:mirror()
+        accepted = monitor:mirror()
         return function(): ()
           if not monitor.dead and (monitor.mirrored or monitor.pending) then
             monitor:dismiss()
           end
         end
       end)
+      if monitor.explicitShare and not accepted then
+        mirrored:dispose()
+        return
+      end
       local place = freePlace()
       local created = panelService:fromMonitor(context, monitor, { pose = poseFor(place), width = placement.width })
       if created.dead then
@@ -265,7 +275,7 @@ return plugin.consumer<<Config, Settings>> {
             local opened = shared.toggles[monitor.id]
             if opened then
               opened:set(false)
-            else
+            elseif not monitor.explicitShare then
               shared.setHidden(monitor.id, true)
             end
           end
@@ -305,7 +315,7 @@ return plugin.consumer<<Config, Settings>> {
     context:on {
       event = lunette.onMonitorAdded,
       run = function(event: lunette.MonitorAddedEvent)
-        if not hidden[event.monitor.id] then
+        if not event.monitor.explicitShare and not hidden[event.monitor.id] then
           mirror(event.monitor)
         end
         local added = shared.added
@@ -322,7 +332,7 @@ return plugin.consumer<<Config, Settings>> {
       return tostring(first.name) < tostring(second.name)
     end)
     for _, monitor in ipairs(present) do
-      if not hidden[monitor.id] then
+      if not monitor.explicitShare and not hidden[monitor.id] then
         mirror(monitor)
       end
     end

@@ -8,6 +8,7 @@
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
+#[cfg(target_os = "linux")]
 mod audio;
 mod children;
 mod drags;

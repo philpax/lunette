@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# Provides `closed_set!` without linking a Lua binding.
+lunette-luau.workspace = true
+smallvec.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
 arc-swap.workspace = true
 # The token uses the operating system's CSPRNG. An unpredictable token prevents
 # a hostile client from claiming another process's attribution.
@@ -15,12 +20,9 @@ glam.workspace = true
 # Provides `dev_t` and `makedev` for DRM device numbers. The C type preserves the
 # platform-specific width accepted by `DmabufFeedbackBuilder::new`.
 libc.workspace = true
-# Provides `closed_set!` without linking a Lua binding.
-lunette-luau.workspace = true
 # WayVR's `WindowManager` keys windows by slotmap handles; `src/wayvr/window.rs`
 # keeps that storage so the file diffs cleanly against upstream.
 slotmap.workspace = true
-smallvec.workspace = true
 # `desktop` provides `Window` and `PopupManager`. Keep `backend_vulkan` disabled:
 # lunette does not create a graphics device, and enabling it adds an unnecessary
 # graphics dependency to a crate whose tests run without a device. Keep `xwayland`
@@ -48,7 +50,7 @@ wayland-protocols = { workspace = true, features = ["client", "staging", "unstab
 # the self dev-dependency, while unit tests use `cfg(test)`.
 test-fakes = []
 
-[dev-dependencies]
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 # This self-dependency enables `test-fakes` for integration tests. Without it,
 # Cargo compiles the library without its test-only modules.
 lunette-compositor = { path = ".", features = ["test-fakes"] }

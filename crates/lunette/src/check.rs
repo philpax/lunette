@@ -1,4 +1,4 @@
-//! Linux-only: runs `lunette check` and draws Luau diagnostics to stderr.
+//! Runs `lunette check` and draws Luau diagnostics to stderr.
 
 use std::{
     collections::HashMap,
@@ -16,6 +16,7 @@ use lunette_lovr::analyze::{self, Diagnostic, Kind, Request};
 use tracing::{error, info};
 
 /// Where the definitions are installed, under the compiled-in prefix.
+#[cfg(target_os = "linux")]
 const INSTALLED_DEFINITIONS: &str = "share/lunette/definitions.luau";
 
 /// Resolves the definitions file, or reports why no definitions are available.
@@ -28,7 +29,16 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
         return None;
     }
 
+    #[cfg(target_os = "linux")]
     let installed = Path::new(crate::PREFIX).join(INSTALLED_DEFINITIONS);
+    #[cfg(windows)]
+    let installed = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .map(|directory| directory.join("definitions.luau"))
+        })
+        .unwrap_or_else(|| PathBuf::from("definitions.luau"));
     if installed.is_file() {
         return Some(installed);
     }

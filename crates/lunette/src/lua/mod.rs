@@ -1,10 +1,11 @@
-//! Linux-only: provides the native `lunette` module to Lua.
+//! Provides the native `lunette` module to Lua.
 //!
 //! Each frame reads one immutable snapshot, and mutations queue until [`Session::flush`]. Dead
 //! handles return `false` and keep their last-known values.
 //! [The Lua API](../../../docs/development/native/lua-api.md#errors) states the error boundaries.
 
 mod audio;
+mod capture_window;
 mod claim;
 pub mod declarations;
 mod drag;
@@ -12,6 +13,8 @@ pub mod glyphs;
 pub mod keys;
 pub mod layout;
 mod monitor;
+#[cfg(windows)]
+pub(crate) mod monitor_input;
 mod output;
 mod process;
 pub mod save_file;
@@ -25,12 +28,13 @@ mod text;
 pub mod values;
 mod window;
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     ffi::{OsString, c_void},
     mem,
-    os::unix::ffi::OsStringExt,
     path::PathBuf,
     rc::Rc,
     sync::Arc,
@@ -65,7 +69,6 @@ use crate::{
         subscription_functions,
     },
     host::HostSinks,
-    keymaps::KeymapCache,
     lua::{
         audio::{AudioCapture, AudioSource, open_audio},
         claim::{ClaimLayer, claim_layer},
@@ -127,12 +130,17 @@ pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Resu
     preload.set(MODULE_NAME, loader)
 }
 
+#[cfg(target_os = "linux")]
+use crate::keymaps::KeymapCache;
+
 /// Holds session state shared by Lua handles and the frame loop.
 ///
 /// It outlives Lua states and serves only the main Lua state. The texture type is generic so tests
 /// run without a graphics device.
 #[derive(Debug)]
 pub struct Session<T> {
+    #[cfg(windows)]
+    pub(crate) window_picker: RefCell<capture_window::WindowPicker>,
     frame: RefCell<Frame>,
     textures: RefCell<TextureLedger<T>>,
     /// Mirrored monitor textures, keyed by monitor. [`crate::texture::MonitorTextures`] states why
@@ -154,6 +162,7 @@ pub struct Session<T> {
     /// Audio reader ownership and frame publications, independent of graphics.
     audio: Rc<dyn AudioRegistry>,
     /// Each seat's published layout, compiled on this thread; [`crate::keymaps`] states why.
+    #[cfg(target_os = "linux")]
     keymaps: RefCell<KeymapCache>,
     seat_names: RefCell<seat::SeatNames>,
     /// Per-window properties that survive Lua state reloads.
@@ -196,6 +205,8 @@ impl<T> Session<T> {
     ) -> Rc<Self> {
         let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
+            #[cfg(windows)]
+            window_picker: RefCell::default(),
             frame: RefCell::new(Frame {
                 snapshot: Arc::clone(&empty),
                 previous: empty,
@@ -215,6 +226,7 @@ impl<T> Session<T> {
             mirrors,
             host,
             audio,
+            #[cfg(target_os = "linux")]
             keymaps: RefCell::new(KeymapCache::default()),
             seat_names: RefCell::new(seat::SeatNames::default()),
             properties: RefCell::new(WindowProperties::new()),
@@ -237,6 +249,7 @@ impl<T> Session<T> {
 
     /// Runs `body` against the compiled keymaps, bounding the borrow as
     /// [`Session::with_textures`] does.
+    #[cfg(target_os = "linux")]
     pub(crate) fn with_keymaps<R>(&self, body: impl FnOnce(&mut KeymapCache) -> R) -> R {
         body(&mut self.keymaps.borrow_mut())
     }
@@ -278,8 +291,11 @@ impl<T> Session<T> {
     pub fn begin(&self, snapshot: Arc<Snapshot>) {
         self.events.borrow_mut().clear();
 
-        let live: Vec<SeatId> = snapshot.seats.iter().map(|seat| seat.seat).collect();
-        self.keymaps.borrow_mut().retain(&live);
+        #[cfg(target_os = "linux")]
+        {
+            let live: Vec<SeatId> = snapshot.seats.iter().map(|seat| seat.seat).collect();
+            self.keymaps.borrow_mut().retain(&live);
+        }
         self.seat_names.borrow_mut().reconcile(&snapshot.seats);
 
         let mut frame = self.frame.borrow_mut();
@@ -358,7 +374,38 @@ impl<T> Session<T> {
     /// The caller sends them outside Lua callbacks because sending can block.
     #[must_use]
     pub fn flush(&self) -> Vec<Command> {
+        #[cfg(not(windows))]
+        return mem::take(&mut self.frame.borrow_mut().commands);
+        #[cfg(windows)]
+        self.flush_windows()
+            .into_iter()
+            .filter_map(|command| match command {
+                monitor_input::WindowsCommand::Native(command) => Some(command),
+                monitor_input::WindowsCommand::Monitor { .. } => None,
+            })
+            .collect()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn flush_windows(&self) -> Vec<monitor_input::WindowsCommand> {
         mem::take(&mut self.frame.borrow_mut().commands)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn queue_monitor(
+        &self,
+        seat: SeatId,
+        monitor: &lunette_capture::monitor::MonitorKey,
+        input: monitor_input::MonitorInput,
+    ) {
+        self.frame
+            .borrow_mut()
+            .commands
+            .push(monitor_input::WindowsCommand::Monitor {
+                seat,
+                monitor: monitor.clone(),
+                input,
+            });
     }
 
     /// The snapshot the frame is answering from.
@@ -428,6 +475,8 @@ impl<T> Session<T> {
             self.audio.pending_process(request.process);
         }
         self.seat_names.borrow_mut().apply(&command);
+        #[cfg(windows)]
+        let command = monitor_input::WindowsCommand::Native(command);
         self.frame.borrow_mut().commands.push(command);
     }
 
@@ -471,7 +520,10 @@ struct Frame {
     previous: Arc<Snapshot>,
     generation: FrameGeneration,
     /// The mutations made so far this frame, in the order they were made.
+    #[cfg(not(windows))]
     commands: Vec<Command>,
+    #[cfg(windows)]
+    commands: Vec<monitor_input::WindowsCommand>,
     /// The highest process identifier minted so far.
     processes: u64,
     seats: u64,
@@ -509,7 +561,7 @@ impl LuaTexture for LovrTexture {
         // the reference this type holds is untouched.
         unsafe {
             lua.exec_raw((), |state| {
-                _luax_pushtype(state.cast(), ObjectType_T_Texture as i32, pointer);
+                _luax_pushtype(state.cast(), ObjectType_T_Texture as _, pointer);
             })
         }
     }
@@ -546,6 +598,21 @@ pub(crate) struct ModuleFunction<T> {
 module! {
     /// Every mapped toplevel, as of this frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
+
+    /// Native windows available for capture, or nil when the host lacks a window picker.
+    fn captureWindows(_lua, session) -> Option<Vec<capture_window::CaptureWindow>> {
+        capture_window::choices(session)
+    }
+
+    /// Queues capture of one available window. A successful capture opens a normal Window handle.
+    fn captureWindow(_lua, session, id: u64) -> bool {
+        Ok(capture_window::capture(session, id))
+    }
+
+    /// Stops sharing the selected native window. The Windows application stays open.
+    fn stopCaptureWindow(_lua, session, id: u64) -> bool {
+        Ok(capture_window::stop(session, id))
+    }
 
     /// Every registered process, including adopted clients, as of this frame's snapshot.
     fn processes(_lua, session) -> Vec<Process<T>> {
@@ -724,7 +791,7 @@ fn spawn<T: LuaTexture>(
             let mut env = Vec::new();
             for pair in table.pairs::<mlua::LuaString, mlua::LuaString>() {
                 let (name, value) = pair?;
-                env.push((os_string(&name), os_string(&value)));
+                env.push((os_string(&name)?, os_string(&value)?));
             }
             // A stable order makes the request reproducible.
             env.sort_unstable();
@@ -743,7 +810,8 @@ fn spawn<T: LuaTexture>(
         env,
         cwd: options
             .get::<Option<mlua::LuaString>>("cwd")?
-            .map(|cwd| PathBuf::from(os_string(&cwd))),
+            .map(|cwd| os_string(&cwd).map(PathBuf::from))
+            .transpose()?,
         output: spawn_output::<T>(options)?,
         xwayland: options.get::<Option<bool>>("xwayland")?.unwrap_or(false),
     }));
@@ -851,16 +919,22 @@ fn strings(options: &Table, name: &str) -> mlua::Result<Vec<OsString>> {
     };
 
     list.sequence_values::<mlua::LuaString>()
-        .map(|value| value.map(|value| os_string(&value)))
+        .map(|value| value.and_then(|value| os_string(&value)))
         .collect()
 }
 
 /// A Lua string as an operating-system string.
 ///
-/// Both are byte strings, so the conversion keeps the bytes and accepts paths and variables that
-/// are not UTF-8.
-fn os_string(value: &mlua::LuaString) -> OsString {
-    OsString::from_vec(value.as_bytes().to_vec())
+/// Unix accepts arbitrary path bytes in addition to UTF-8.
+#[cfg(unix)]
+fn os_string(value: &mlua::LuaString) -> mlua::Result<OsString> {
+    Ok(OsString::from_vec(value.as_bytes().to_vec()))
+}
+
+/// Strings passed from Lua to Windows use UTF-8.
+#[cfg(windows)]
+fn os_string(value: &mlua::LuaString) -> mlua::Result<OsString> {
+    Ok(OsString::from(value.to_str()?.as_ref()))
 }
 
 /// Checks a pair of numbers before they are taken for a size in pixels.

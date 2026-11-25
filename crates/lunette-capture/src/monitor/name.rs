@@ -263,7 +263,7 @@ impl fmt::Display for MonitorName {
 
 /// How a monitor is recorded across restarts.
 ///
-/// The three key forms are distinct and ordered by the information they retain.
+/// Key forms are distinct and ordered by the information they retain.
 /// [`Self::strength`] compares them, and [`Self::upgraded`] promotes a stored key
 /// when stronger information becomes available.
 ///
@@ -281,6 +281,9 @@ pub enum MonitorKey {
     /// Where the monitor sits. Survives neither, and is recorded only when
     /// nothing else is available.
     Position(LogicalPosition),
+    /// The Windows monitor interface or, for a virtual display, its GDI device.
+    #[cfg(windows)]
+    WindowsDisplay(String),
 }
 
 /// How much a [`MonitorKey`] survives, in increasing order.
@@ -309,6 +312,8 @@ impl MonitorKey {
             Self::Descriptor(_) => KeyStrength::Descriptor,
             Self::Connector(_) => KeyStrength::Connector,
             Self::Position(_) => KeyStrength::Positional,
+            #[cfg(windows)]
+            Self::WindowsDisplay(_) => KeyStrength::Connector,
         }
     }
 
@@ -319,6 +324,8 @@ impl MonitorKey {
             Self::Descriptor(descriptor) => name.matches(descriptor.as_str()),
             Self::Connector(connector) => name.matches(&connector.to_string()),
             Self::Position(stored) => *stored == position,
+            #[cfg(windows)]
+            Self::WindowsDisplay(_) => false,
         }
     }
 
@@ -343,6 +350,8 @@ impl fmt::Display for MonitorKey {
             Self::Descriptor(descriptor) => write!(f, "{descriptor}"),
             Self::Connector(connector) => write!(f, "{connector}"),
             Self::Position(position) => write!(f, "the monitor at {position}"),
+            #[cfg(windows)]
+            Self::WindowsDisplay(display) => write!(f, "windows:{display}"),
         }
     }
 }

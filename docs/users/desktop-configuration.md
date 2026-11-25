@@ -39,6 +39,14 @@ Focusing a UI text field shows the shared keyboard. Hiding it ends focus and kee
 
 ## Windows, monitors, and workspaces
 
+On Windows, the wrist menu's Windows group lists visible application windows. Refresh window list updates the entries. Selecting a window opens its panel and leaves the other panels available. The default arc arranges unplaced windows around the current view whenever the layout changes. Dragging a window keeps it at the position where it was dropped. Select **Stop sharing** next to a captured window to remove its panel and keep the application open. A panel follows changes to the application window's size and closes when the application closes. The panel titlebar's close button asks Windows to close the application window.
+
+Windows panel content accepts clicks and drags on exposed parts of the window. Clicking a window gives it focus for typing, shortcuts, and scrolling. Windows foreground focus can change outside VR. A covered point refuses pointer input, and text and shortcuts require the target window to hold foreground focus.
+
+The Monitors group lists attached Windows displays. Select a display to share it, then select it again or close its panel to stop sharing. Lunette starts each session with display sharing off. A live display mirror takes clicks, drags, and wheel input on its display. Click an app in the mirror to direct typing and shortcuts to it while it has Windows foreground focus. Pausing the mirror also pauses its input.
+
+For testing from the command line, `lunette.exe --list-windows` lists available titles and `lunette.exe --window-title "Exact Window Title"` starts capture of one matching window. The title must identify one window.
+
 Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. A titled panel, including a window or monitor titlebar, shows a gear labelled Settings left of close. While the input lock is active, a pointer-with-lock icon appears beside the gear; while the transform lock is active, a move-gizmo-with-lock icon does. Each quick icon unlocks its lock. An unlocked panel shows neither, and the Settings popup holds both toggles and the panel's bend and axis.
 
 The input lock affects panel content only. Locked content blocks pointing to panels behind it and receives no pointer, touch, scroll, or routed keyboard input, while the header band and the Settings popup stay usable, so the panel can always be unlocked. An in-flight content press is cancelled and activates nothing. Locking releases held content input and focus; unlocking requires fresh input and restores no focus.
@@ -54,6 +62,8 @@ Workspaces show one configured tag at a time. The wrist menu offers configured w
 ## Audio backdrop
 
 The [backdrop plugin](../../lua/lunette-plugins/environment/backdrop/README.md) can react to the system output mix and remains available without audio services. Audio capture does not change playback routing or volume. Its schema owns the options; [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates independent audio consumers.
+
+On Windows, system audio follows the default multimedia playback device. Per-application capture can follow a Lunette-launched app or the process behind a shared window. It includes audio from that process and its children and requires Windows build 20348 or later.
 
 ## Toolkit panels and notifications
 

@@ -44,6 +44,8 @@ Compiled-in safe mode replaces callbacks after initial configuration failure, in
 
 `lunctl` evaluates chunks on the Lua thread between frames. Its local socket grants full session authority. The runtime directory must be private before binding; changing socket permissions afterward leaves a connection window. There is no network transport. `LUNETTE_CONTROL` enables it only when unset, empty, or `on`, so other values fail closed.
 
+Windows uses a local named pipe. The client discovers the endpoint for its Windows sign-in and integrity level. Lunette restricts access before creating the pipe, and the client checks the server process identity before sending Lua.
+
 Evaluation time limits are best-effort Luau interrupts. Interpreted and generated Luau code check safepoints, but a chunk can catch the error, and a C function may never return to a safepoint. A hard watchdog would kill the session and its clients, so none is supplied. The control socket is not a sandbox.
 
 Serialization rejects cycles, unsupported values, and non-scalar keys instead of substituting strings. Traversal is raw and bounded; handle results contain kind and session identity, never addresses. [The control implementation](../../../crates/lunette/src/control/) owns the wire format.

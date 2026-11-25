@@ -143,7 +143,7 @@ function native.new(label: string, cleanup: ((boolean) -> ())?): Driver
     if not live(target) or not valid() then
       return refused 'the native route is no longer live'
     end
-    if target.sink.domain == 'host' then
+    if target.sink.domain == 'host' or target.sink.directText then
       local result = invoke('enter text', function(): boolean
         return target.sink:typeText(value, target.seat)
       end)

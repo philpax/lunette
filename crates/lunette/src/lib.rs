@@ -1,4 +1,4 @@
-//! Linux-only: coordinates the compositor, capture, Lua session, and frame loop.
+//! Coordinates the desktop host, capture, Lua session, and frame loop.
 //!
 //! The binary owns environment access, logging, and LÖVR startup. This crate exposes the subsystems
 //! that the binary coordinates and the tests exercise directly.
@@ -10,10 +10,16 @@ pub mod control;
 pub mod environment;
 pub mod events;
 pub mod execution;
+#[cfg(target_os = "linux")]
+pub mod frame;
+#[cfg(windows)]
+#[path = "frame/windows.rs"]
 pub mod frame;
 pub mod frame_timing;
 pub mod host;
+#[cfg(target_os = "linux")]
 pub mod import;
+#[cfg(target_os = "linux")]
 pub mod keymaps;
 pub mod layers;
 #[cfg(test)]
@@ -24,6 +30,7 @@ pub mod plugin;
 pub mod properties;
 pub mod reload;
 pub mod require;
+#[cfg(target_os = "linux")]
 pub mod restart;
 pub mod safe_mode;
 pub mod scale;

@@ -104,6 +104,7 @@ export type Monitor = {
   sink: Sink,
   mirrored: boolean?,
   pending: boolean?,
+  explicitShare: boolean?,
   paused: boolean?,
   frameTransform: string?,
   logicalWidth: number?,
@@ -584,6 +585,12 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
       assert(fake.subscriptionCount 'onWindowOpened' > 0, 'subscribe before window enumeration')
     end
     return table.clone(events.windows)
+  end
+  lunette.captureWindows = function(): { lunette.CaptureWindow }?
+    return nil
+  end
+  lunette.captureWindow = function(_id: number): boolean
+    return false
   end
   lunette.monitors = function(): { [number | string]: Monitor }
     return events.monitors

@@ -162,3 +162,107 @@ jobs:
 
       - run: make check-luau
         if: matrix.half == 'test'
+
+  windows:
+    name: Windows x64 build and tests
+    runs-on: windows-2025
+    timeout-minutes: 35
+    env:
+      WINDOWS_TARGET: x86_64-pc-windows-gnullvm
+      CMAKE_GENERATOR: Ninja
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure LLVM-MinGW and bindgen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '20261020'
+          $name = "llvm-mingw-$version-ucrt-x86_64"
+          $archive = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/$version/$name.zip" -OutFile $archive
+          $sha256 = 'fd5462b7f5d93b2ff981fcd3f9c7e427e47f3203c64ea91c27bcc444eebd74cd'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $sha256) {
+              throw 'LLVM-MinGW archive checksum mismatch.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+          $llvm = Join-Path $env:RUNNER_TEMP $name
+          $bin = Join-Path $llvm 'bin'
+          $cc = Join-Path $bin 'x86_64-w64-mingw32-clang.exe'
+          $cxx = Join-Path $bin 'x86_64-w64-mingw32-clang++.exe'
+          $ar = Join-Path $bin 'llvm-ar.exe'
+          $resource = & $cc -print-resource-dir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not locate the clang resource directory.' }
+          $ucrt = (Join-Path $llvm 'include').Replace('\', '/')
+          $clang = "$($resource.Replace('\', '/'))/include"
+          $bindgen = Join-Path $env:RUNNER_TEMP 'lunette-libclang'
+          python -m pip install --target $bindgen libclang==18.1.1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install libclang for bindgen.' }
+
+          $bin >> $env:GITHUB_PATH
+          "LLVM_MINGW_DIR=$llvm" >> $env:GITHUB_ENV
+          "CARGO_TARGET_DIR=$env:RUNNER_TEMP/lunette-target" >> $env:GITHUB_ENV
+          "CC=$cc" >> $env:GITHUB_ENV
+          "CXX=$cxx" >> $env:GITHUB_ENV
+          "AR=$ar" >> $env:GITHUB_ENV
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER=$cc" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=$bindgen/clang/native" >> $env:GITHUB_ENV
+          "BINDGEN_EXTRA_CLANG_ARGS=-isystem `"$ucrt`" -isystem `"$clang`"" >> $env:GITHUB_ENV
+
+      - name: Install Rust for LLVM-MinGW
+        shell: pwsh
+        run: |
+          $toolchain = "stable-$env:WINDOWS_TARGET"
+          rustup toolchain install $toolchain --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "RUSTUP_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
+
+      - name: Build the Windows host and tools
+        shell: pwsh
+        run: |
+          $build = cargo build --locked --target $env:WINDOWS_TARGET -p lunette -p lunette-generate-definitions --bins --message-format=json-render-diagnostics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $lovr = @($build | ForEach-Object { ConvertFrom-Json -InputObject $_ } | Where-Object {
+              $_.reason -eq 'build-script-executed' -and $_.package_id -match '/lunette-lovr#'
+          })
+          if ($lovr.Count -ne 1) { throw 'Could not identify the LÖVR build output from Cargo.' }
+          $dll = Get-ChildItem -LiteralPath $lovr[0].out_dir -Recurse -File -Filter 'liblovr.dll'
+          if (@($dll).Count -ne 1) { throw 'Expected one built liblovr.dll.' }
+          $dll.DirectoryName >> $env:GITHUB_PATH
+          "LUNETTE_LOVR_DIR=$($dll.DirectoryName)" >> $env:GITHUB_ENV
+
+      - name: Test the Windows host and capture library
+        shell: pwsh
+        run: |
+          cargo test --locked --target $env:WINDOWS_TARGET -p lunette-capture --lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --target $env:WINDOWS_TARGET -p lunette --lib --test lua
+          exit $LASTEXITCODE
+
+      - name: Package and smoke-test the Windows ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'Lunette-windows-x64.zip'
+          ./etc/windows/package.ps1 `
+              -BinaryDirectory "$env:CARGO_TARGET_DIR/$env:WINDOWS_TARGET/debug" `
+              -LovrDirectory $env:LUNETTE_LOVR_DIR `
+              -LlvmMingwDirectory $env:LLVM_MINGW_DIR `
+              -OutputZip $zip
+          $bundle = Join-Path $env:RUNNER_TEMP 'lunette-windows-smoke'
+          Expand-Archive -LiteralPath $zip -DestinationPath $bundle
+          & "$bundle/lunette.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$bundle/lunette.exe" check "$bundle/config"
+          exit $LASTEXITCODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lunette-windows-x64
+          path: ${{ runner.temp }}/Lunette-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0

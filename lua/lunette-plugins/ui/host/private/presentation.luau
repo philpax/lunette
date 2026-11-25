@@ -45,27 +45,34 @@ local function ahead(head: Head, distance: number, drop: number): vector
   return vector.pack(point.x, point.y - drop, point.z)
 end
 
+function presentation.attach(record: records.Panel, theme: uiHost.Theme): boolean
+  local target = record.target
+  if not target or target.dead or not target.pose then
+    return false
+  end
+  -- The panel sits tangent to the target's top edge, including when the target is curved.
+  local width, height = target.width or 0, target.height or 0
+  local surface = curved.surface(width, height, target.curve or 0, target.curveAxis or 0)
+  local above = record.gap + record.height / 2
+  record.pose:set(
+    lovr.math
+      .mat4(target.pose)
+      :mul(curved.frame(surface, width / 2, 0, 0))
+      :translate(0, above, theme.elevation.contentOffset)
+  )
+  return true
+end
+
 -- Advances one panel's presentation by a frame.
 function presentation.place(record: records.Panel, head: Head?, dt: number, theme: uiHost.Theme): ()
   if record.presentation == 'attach' then
-    local target = record.target
-    if not target or target.dead or not target.pose then
+    if not presentation.attach(record, theme) then
       record.visible = false
       record.sync()
       return
     end
-    record.minWidth = target.width or record.minWidth
-    -- The panel sits on the target's top edge, tangent there, so a curve or a tilted axis carries it. The offset is
-    -- the gap and the panel's own half height; its own curve approximates the bottom edge.
-    local width, height = target.width or 0, target.height or 0
-    local surface = curved.surface(width, height, target.curve or 0, target.curveAxis or 0)
-    local above = record.gap + record.height / 2
-    record.pose:set(
-      lovr.math
-        .mat4(target.pose)
-        :mul(curved.frame(surface, width / 2, 0, 0))
-        :translate(0, above, theme.elevation.contentOffset)
-    )
+    local target = record.target
+    record.minWidth = if target then target.width or record.minWidth else record.minWidth
   elseif record.presentation == 'world' then
     -- A world panel made without a pose opens ahead of the head, as a dialog without a parent does, and then stays
     -- where it opened until it is moved.
